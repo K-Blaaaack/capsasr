@@ -1,25 +1,25 @@
-# Fun-ASR-Nano 打包脚本（AUR/本地 makepkg 通用）
+# CapsASR 打包脚本（AUR/本地 makepkg 通用）
 #
-# 布局: /usr/bin/{stt,stt-daemon}（控制命令, 进 PATH）
-#       /usr/lib/funasr-nano/{voiced,engines,tools}（核心运行体, 不进 PATH, 防与系统 llama.cpp 冲突）
-# 包不含模型与用户配置——装包后 `stt init` 完成（数据落 ~/.stt）。
+# 布局: /usr/bin/{capsasr,capsasr-daemon}（控制命令, 进 PATH）
+#       /usr/lib/capsasr/{capsasr,engines,tools}（核心运行体, 不进 PATH, 防与系统 llama.cpp 冲突）
+# 包不含模型与用户配置——装包后 `capsasr init` 完成（数据落 ~/.capsasr）。
 #
 # 发布前（顺序）:
 #   1. 把 _repo 改成你的真实 GitHub 仓库，代码推上去并打 tag v$pkgver
-#   2. 建 Release v$pkgver，上传两个引擎二进制 llama-funasr-cli-{vulkan,cuda}
+#   2. 建 Release v$pkgver，上传两个引擎二进制 capsasr-engine-{vulkan,cuda}
 #   3. sha256sum 两个二进制，把真实值填进 sha256sums（源码归档可留 SKIP）
 #   4. makepkg --printsrcinfo > .SRCINFO，PKGBUILD+.SRCINFO 一起提交 AUR
 #
 # 本地验证（未发布时，绕过网络）:
 #   tar --exclude='./models' --exclude='./engines' --exclude='./packaging' -czf /tmp/src.tar.gz -C . .
 #   cd packaging && _code=/tmp/src.tar.gz \
-#       _engine=$PWD/../engines/llama-funasr-cli-vulkan \
-#       _engine_cuda=$PWD/../engines/llama-funasr-cli-cuda makepkg -f
+#       _engine=$PWD/../engines/capsasr-engine-vulkan \
+#       _engine_cuda=$PWD/../engines/capsasr-engine-cuda makepkg -f
 
-pkgname=funasr-nano
-pkgver=0.3.0
-pkgrel=3
-pkgdesc="本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (Fun-ASR-Nano GGUF, 无 PyTorch)"
+pkgname=capsasr
+pkgver=0.4.0
+pkgrel=1
+pkgdesc="本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)"
 arch=(x86_64)
 _repo="https://github.com/Wry-Zen/capsasr"
 url="$_repo"
@@ -32,8 +32,8 @@ optdepends=(
 options=(!debug)
 
 : "${_code:=${_repo}/archive/refs/tags/v${pkgver}.tar.gz}"
-: "${_engine:=${_repo}/releases/download/v${pkgver}/llama-funasr-cli-vulkan}"
-: "${_engine_cuda:=${_repo}/releases/download/v${pkgver}/llama-funasr-cli-cuda}"
+: "${_engine:=${_repo}/releases/download/v${pkgver}/capsasr-engine-vulkan}"
+: "${_engine_cuda:=${_repo}/releases/download/v${pkgver}/capsasr-engine-cuda}"
 source=("$_code" "$_engine" "$_engine_cuda")
 sha256sums=(SKIP SKIP SKIP)   # TODO 发布时填两个引擎二进制真实 sha256
 
@@ -44,19 +44,19 @@ package() {
         cd "$pkgname-$pkgver"
     fi
 
-    _app="$pkgdir/usr/lib/funasr-nano"
-    install -dm755 "$_app/voiced" "$_app/engines" "$_app/tools" "$pkgdir/usr/bin"
+    _app="$pkgdir/usr/lib/capsasr"
+    install -dm755 "$_app/capsasr" "$_app/engines" "$_app/tools" "$pkgdir/usr/bin"
 
-    install -Dm644 voiced/*.py -t "$_app/voiced/"
-    install -m755 "$srcdir/llama-funasr-cli-vulkan" "$_app/engines/llama-funasr-cli-vulkan"
-    install -m755 "$srcdir/llama-funasr-cli-cuda" "$_app/engines/llama-funasr-cli-cuda"
-    install -Dm755 bin/stt bin/stt-daemon -t "$pkgdir/usr/bin/"
+    install -Dm644 capsasr/*.py -t "$_app/capsasr/"
+    install -m755 "$srcdir/capsasr-engine-vulkan" "$_app/engines/capsasr-engine-vulkan"
+    install -m755 "$srcdir/capsasr-engine-cuda" "$_app/engines/capsasr-engine-cuda"
+    install -Dm755 bin/capsasr bin/capsasr-daemon -t "$pkgdir/usr/bin/"
     install -Dm755 tools/setup-keyd.sh -t "$_app/tools/"
     install -Dm644 tools/funasr-cli.patch -t "$_app/tools/"
 
-    install -Dm644 /dev/stdin "$pkgdir/usr/share/doc/funasr-nano/README" <<'EOF'
-初始化: stt init
-体检:   stt doctor
-热键:   sudo bash /usr/lib/funasr-nano/tools/setup-keyd.sh
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/doc/capsasr/README" <<'EOF'
+初始化: capsasr init
+体检:   capsasr doctor
+热键:   sudo bash /usr/lib/capsasr/tools/setup-keyd.sh
 EOF
 }

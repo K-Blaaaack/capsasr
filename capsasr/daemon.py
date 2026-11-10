@@ -123,7 +123,7 @@ def _acquire_singleton(cfg) -> object | None:
 
     必须在 Engine 构造（spawn 引擎子进程）之前调用。
     """
-    lock_path = os.path.join(os.path.dirname(cfg.socket_path), "funasr-nano.lock")
+    lock_path = os.path.join(os.path.dirname(cfg.socket_path), "capsasr.lock")
     fh = open(lock_path, "w")
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -134,7 +134,7 @@ def _acquire_singleton(cfg) -> object | None:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="voiced")
+    parser = argparse.ArgumentParser(prog="capsasr")
     parser.add_argument("--config", default=None)
     args = parser.parse_args()
 

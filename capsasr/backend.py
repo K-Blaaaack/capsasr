@@ -16,8 +16,8 @@ from pathlib import Path
 from .config import ENGINES_DIR
 
 _BIN_NAMES = {
-    "cuda": "llama-funasr-cli-cuda",
-    "vulkan": "llama-funasr-cli-vulkan",
+    "cuda": "capsasr-engine-cuda",
+    "vulkan": "capsasr-engine-vulkan",
 }
 _AUTO_ORDER = ("cuda", "vulkan")
 

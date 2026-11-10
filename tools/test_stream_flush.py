@@ -7,7 +7,7 @@
   3. 连续两段音频会话隔离（第二段不受第一段污染）
   4. EOF 后 DONE 正常收尾
 
-用法: python3 tools/test_stream_flush.py [--bin engines/llama-funasr-cli-vulkan] clipA.wav [clipB.wav]
+用法: python3 tools/test_stream_flush.py [--bin engines/capsasr-engine-vulkan] clipA.wav [clipB.wav]
       wav 需 16kHz 16bit PCM（真实人声；合成音过不了流式 VAD 属正常）
 """
 
@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voiced.engine import Engine  # noqa: E402
+from capsasr.engine import Engine  # noqa: E402
 
 
 def read_until(proc, tags, timeout=15):
@@ -40,7 +40,7 @@ def read_until(proc, tags, timeout=15):
 
 def main():
     args = [a for a in sys.argv[1:]]
-    bin_path = ROOT / "engines/llama-funasr-cli-vulkan"
+    bin_path = ROOT / "engines/capsasr-engine-vulkan"
     if "--bin" in args:
         i = args.index("--bin")
         bin_path = Path(args[i + 1])

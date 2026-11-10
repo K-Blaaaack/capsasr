@@ -15,7 +15,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from voiced.capture import trim_silence  # noqa: E402
+from capsasr.capture import trim_silence  # noqa: E402
 
 CFG = SimpleNamespace(sample_rate=16000, trim_db=-40.0, head_pad_ms=100, tail_pad_ms=200)
 

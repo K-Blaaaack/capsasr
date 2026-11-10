@@ -2,21 +2,21 @@ import os
 import tomllib
 from pathlib import Path
 
-# 应用根：voiced/ 的父目录。仓库直跑 = 仓库根；安装后 = /usr/lib/funasr-nano（或 ~/.local/...）
+# 应用根：capsasr/ 的父目录。仓库直跑 = 仓库根；安装后 = /usr/lib/capsasr（或 ~/.local/...）
 APP_ROOT = Path(__file__).resolve().parent.parent
 
 # 用户数据单目录：模型/配置/热词/日志全在这，卸载 = rm -rf。
-# 环境变量 STT_HOME 可覆盖（测试/多实例用）。
-STT_HOME = Path(os.environ.get("STT_HOME") or Path.home() / ".stt")
+# 环境变量 CAPSASR_HOME 可覆盖（测试/多实例用）。
+CAPSASR_HOME = Path(os.environ.get("CAPSASR_HOME") or Path.home() / ".capsasr")
 
 ENGINES_DIR = APP_ROOT / "engines"
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
 
 
 def models_dir() -> Path:
-    """模型目录：应用根带 models/（仓库开发态）优先，否则 ~/.stt/models。"""
+    """模型目录：应用根带 models/（仓库开发态）优先，否则 ~/.capsasr/models。"""
     bundled = APP_ROOT / "models"
-    return bundled if bundled.is_dir() else STT_HOME / "models"
+    return bundled if bundled.is_dir() else CAPSASR_HOME / "models"
 
 
 DEFAULTS: dict = {
@@ -43,12 +43,12 @@ DEFAULTS: dict = {
         "max_seconds": 60.0,
     },
     "paste": {"restore_clipboard": True, "restore_delay_ms": 500},
-    "server": {"socket": "funasr-nano.sock"},
+    "server": {"socket": "capsasr.sock"},
 }
 
 
 def config_path() -> Path:
-    return STT_HOME / "config.toml"
+    return CAPSASR_HOME / "config.toml"
 
 
 def load_raw(path: Path | None = None) -> dict:
@@ -90,7 +90,7 @@ class Config:
         self.language = str(eng.get("language", "中文"))
         hw = eng.get("hotwords", "hotwords.txt")
         # 空串=显式禁用热词；指向一个不存在的路径，load_hotwords 自然返回空
-        self.hotwords_file = self._resolve(hw, STT_HOME) if hw else STT_HOME / "hotwords.disabled"
+        self.hotwords_file = self._resolve(hw, CAPSASR_HOME) if hw else CAPSASR_HOME / "hotwords.disabled"
 
         self.trigger_layer = str(merged["hotkey"].get("layer", "voice"))
 
@@ -107,8 +107,8 @@ class Config:
         self.restore_clipboard = bool(pa.get("restore_clipboard", True))
         self.restore_delay_ms = int(pa.get("restore_delay_ms", 500))
 
-        self.socket_path = str(RUNTIME_DIR / merged["server"].get("socket", "funasr-nano.sock"))
-        self.log_dir = STT_HOME / "logs"
+        self.socket_path = str(RUNTIME_DIR / merged["server"].get("socket", "capsasr.sock"))
+        self.log_dir = CAPSASR_HOME / "logs"
 
     @staticmethod
     def _resolve(p, base: Path) -> Path:

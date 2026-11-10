@@ -60,7 +60,7 @@ def download(name: str, dest_dir: Path, log=print) -> Path:
         part = dest.with_suffix(dest.suffix + ".part")
         log(f"  {name}: 下载中…")
         try:
-            req = urllib.request.Request(make_url(repo, name), headers={"User-Agent": "stt/1.0"})
+            req = urllib.request.Request(make_url(repo, name), headers={"User-Agent": "capsasr/1.0"})
             with urllib.request.urlopen(req, timeout=60) as resp, part.open("wb") as out:
                 total = int(resp.headers.get("Content-Length") or MODELS[name]["size"])
                 done = 0

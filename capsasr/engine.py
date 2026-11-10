@@ -18,7 +18,7 @@ class Engine:
     每段音频写入 stdin 后发 SIGUSR1 触发尾段 is_final 提交，
     按序读 LOCKED 行直到 FLUSHED 标记。补丁见 tools/funasr-cli.patch。
 
-    后端（CUDA/Vulkan/CPU）由 voiced.backend 探测决定；候选链逐个尝试，
+    后端（CUDA/Vulkan/CPU）由 capsasr.backend 探测决定；候选链逐个尝试，
     READY 握手失败的自动降级到下一个。
     """
 

@@ -1,7 +1,7 @@
-pkgbase = funasr-nano
-	pkgdesc = 本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (Fun-ASR-Nano GGUF, 无 PyTorch)
-	pkgver = 0.3.0
-	pkgrel = 3
+pkgbase = capsasr
+	pkgdesc = 本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)
+	pkgver = 0.4.0
+	pkgrel = 1
 	url = https://github.com/Wry-Zen/capsasr
 	arch = x86_64
 	license = MIT
@@ -17,11 +17,11 @@ pkgbase = funasr-nano
 	optdepends = vulkan-tools: 设备探测回退
 	optdepends = cuda: CUDA 后端运行库
 	options = !debug
-	source = https://github.com/Wry-Zen/capsasr/archive/refs/tags/v0.3.0.tar.gz
-	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.3.0/llama-funasr-cli-vulkan
-	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.3.0/llama-funasr-cli-cuda
+	source = https://github.com/Wry-Zen/capsasr/archive/refs/tags/v0.4.0.tar.gz
+	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.4.0/capsasr-engine-vulkan
+	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.4.0/capsasr-engine-cuda
 	sha256sums = SKIP
 	sha256sums = SKIP
 	sha256sums = SKIP
 
-pkgname = funasr-nano
+pkgname = capsasr

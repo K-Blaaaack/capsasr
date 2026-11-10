@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""capsasr 控制命令入口。布局自发现：安装态 {prefix}/bin → {prefix}/lib/capsasr；
+仓库态 bin → 仓库根。用法见 `capsasr --help`。"""
+
+import sys
+from pathlib import Path
+
+_here = Path(__file__).resolve()
+for _cand in (_here.parent.parent / "lib/capsasr", _here.parent.parent):
+    if (_cand / "capsasr" / "cli.py").is_file():
+        sys.path.insert(0, str(_cand))
+        break
+else:
+    print("找不到 capsasr 包（应与 bin/ 或 lib/capsasr/ 同级安装）", file=sys.stderr)
+    sys.exit(2)
+
+from capsasr.cli import main  # noqa: E402
+
+sys.exit(main())

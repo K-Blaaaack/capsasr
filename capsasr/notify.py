@@ -4,7 +4,7 @@ import subprocess
 def notify(summary: str, body: str = "", timeout_ms: int = 2000):
     args = [
         "notify-send",
-        "-a", "Fun-ASR-Nano",
+        "-a", "CapsASR",
         "-t", str(timeout_ms),
         summary,
     ]

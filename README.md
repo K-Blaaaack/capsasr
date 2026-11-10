@@ -1,16 +1,16 @@
-# Fun-ASR-Nano 语音输入
+# CapsASR 语音输入
 
 长按 **大写锁定键** 说话，松手自动识别并粘贴到当前输入框。识别即用，不落任何数据。
 
 ## 原理
 
 ```
-CapsLock ──keyd(/etc/keyd, overloadt 325ms)──> voice层 ──keyd listen──> stt daemon
+CapsLock ──keyd(/etc/keyd, overloadt 325ms)──> voice层 ──keyd listen──> capsasr daemon
                                               ├─ parec 常驻采集(带300ms预卷, s16le bytes 直传)
                                               ├─ 松手→能量裁剪首尾静音
                                               ├─ ASR: llama-funasr-cli --stream 常驻子进程
                                               │    (GGUF Q8, 纯C++/ggml直驱GPU, 无PyTorch)
-                                              │    后端自动探测: cuda→vulkan→cpu (voiced/backend.py)
+                                              │    后端自动探测: cuda→vulkan→cpu (capsasr/backend.py)
                                               │    松手时 SIGUSR1 触发尾段提交(见 tools/funasr-cli.patch)
                                               └─ wl-copy + ydotool Ctrl+V 粘贴
                                                    (0.5s 后按原MIME恢复剪贴板，含图片等二进制)
@@ -24,49 +24,49 @@ CapsLock ──keyd(/etc/keyd, overloadt 325ms)──> voice层 ──keyd liste
 ## 安装（Arch / AUR 路径）
 
 ```bash
-# 1. 装包（控制命令进 PATH，定制引擎在 /usr/lib/funasr-nano 不进 PATH，依赖由包条目声明）
-makepkg -si                      # 本地打包；AUR 上架后直接 yay -S funasr-nano
+# 1. 装包（控制命令进 PATH，定制引擎在 /usr/lib/capsasr 不进 PATH，依赖由包条目声明）
+makepkg -si                      # 本地打包；AUR 上架后直接 yay -S capsasr
 
 # 2. 初始化（模型下载/本地导入、后端与选卡、热词开关、自启方式）
-stt init
+capsasr init
 
-# 3. keyd 热键（唯一需要 sudo 的环节，stt init 会提示路径）
-sudo bash /usr/lib/funasr-nano/tools/setup-keyd.sh 325
+# 3. keyd 热键（唯一需要 sudo 的环节，capsasr init 会提示路径）
+sudo bash /usr/lib/capsasr/tools/setup-keyd.sh 325
 
 # 4. 启动（init 选了自启则下次登录生效；现在立即用）
-stt-daemon &
+capsasr-daemon &
 ```
 
-包内**不含模型**：`stt init` 从 Hugging Face / hf-mirror / ModelScope 三源回退下载三个 gguf 并做 sha256 校验，约 1.3GB；中断后重跑可续传（已就绪文件自动跳过）。
+包内**不含模型**：`capsasr init` 从 Hugging Face / hf-mirror / ModelScope 三源回退下载三个 gguf 并做 sha256 校验，约 1.3GB；中断后重跑可续传（已就绪文件自动跳过）。
 
 ## 控制命令
 
 | 命令 | 说明 |
 |---|---|
-| `stt init` | 向导：模型下载、后端/选卡、热词、自启（`--force` 重配，`--yes` 全默认） |
-| `stt doctor` | 环境体检：python/模型/后端探测/设备/daemon/keyd/ydotoold（`--verify` 做完整 sha256） |
-| `stt config` | 列出全部配置（`*`=配置文件显式设置） |
-| `stt config get backend.mode` | 查单键 |
-| `stt config set backend.mode vulkan` | **终端改写配置**：行级编辑，保留注释与结构 |
-| `stt config edit` | 用 $EDITOR 打开配置 |
-| `stt config path` | 配置文件路径 |
-| `stt cli a.wav` | 经守护进程转写任意音频（16kHz 16bit PCM wav） |
-| `stt daemon` | 前台运行守护进程（systemd/调试用） |
-| `stt-daemon` | 带环境自愈+崩溃重拉的包装壳（桌面自启条目指向它） |
+| `capsasr init` | 向导：模型下载、后端/选卡、热词、自启（`--force` 重配，`--yes` 全默认） |
+| `capsasr doctor` | 环境体检：python/模型/后端探测/设备/daemon/keyd/ydotoold（`--verify` 做完整 sha256） |
+| `capsasr config` | 列出全部配置（`*`=配置文件显式设置） |
+| `capsasr config get backend.mode` | 查单键 |
+| `capsasr config set backend.mode vulkan` | **终端改写配置**：行级编辑，保留注释与结构 |
+| `capsasr config edit` | 用 $EDITOR 打开配置 |
+| `capsasr config path` | 配置文件路径 |
+| `capsasr cli a.wav` | 经守护进程转写任意音频（16kHz 16bit PCM wav） |
+| `capsasr daemon` | 前台运行守护进程（systemd/调试用） |
+| `capsasr-daemon` | 带环境自愈+崩溃重拉的包装壳（桌面自启条目指向它） |
 
 ## 目录布局
 
 ```
-/usr/bin/{stt,stt-daemon}                   控制命令（PATH）
-/usr/lib/funasr-nano/{voiced,engines,tools} 核心运行体（不进 PATH，防与系统 llama.cpp 冲突）
-~/.stt/                                     全部用户数据（卸载 = rm -rf）
-  config.toml    配置（全部字段可省略，默认见 voiced/config.py DEFAULTS）
+/usr/bin/{capsasr,capsasr-daemon}                   控制命令（PATH）
+/usr/lib/capsasr/{capsasr,engines,tools} 核心运行体（不进 PATH，防与系统 llama.cpp 冲突）
+~/.capsasr/                                     全部用户数据（卸载 = rm -rf）
+  config.toml    配置（全部字段可省略，默认见 capsasr/config.py DEFAULTS）
   hotwords.txt   热词（每行一个，# 注释）
   models/        三个 gguf
   logs/          daemon.log / engine.log
 ```
 
-热词：编辑 `~/.stt/hotwords.txt` 后 `pkill -HUP -f "[v]oiced.daemon"` 热重载（重启常驻引擎进程）。
+热词：编辑 `~/.capsasr/hotwords.txt` 后 `pkill -HUP -f "[v]oiced.daemon"` 热重载（重启常驻引擎进程）。
 
 ## 后端与选卡
 
@@ -83,8 +83,8 @@ device = "auto"    # 设备名子串（如 "RADV"、"9070"）或序号；auto=�
 
 ## 引擎说明
 
-引擎二进制（包内**携带两个**）：`/usr/lib/funasr-nano/engines/llama-funasr-cli-vulkan`（现役走 AMD Radeon RX 9070）与
-`llama-funasr-cli-cuda`（Blackwell/sm_120）。CUDA 版需要 CUDA 运行库（cudart/cublas/nccl，来自 `cuda` 包，
+引擎二进制（包内**携带两个**）：`/usr/lib/capsasr/engines/capsasr-engine-vulkan`（现役走 AMD Radeon RX 9070）与
+`capsasr-engine-cuda`（Blackwell/sm_120）。CUDA 版需要 CUDA 运行库（cudart/cublas/nccl，来自 `cuda` 包，
 optdepends 声明）；缺失时探测会如实报告"运行库✗缺 …"并自动跳过该后端。
 
 Fun-ASR 官方 llama.cpp fork，GGUF Q8_0（官方验证 CER 与 PyTorch 参考差 0.02%）。本项目补丁（`tools/funasr-cli.patch`）：
@@ -111,15 +111,15 @@ cmake --build build -j 32 --target llama-funasr-cli
 ## 回滚 / 卸载
 
 ```bash
-rm -f ~/.config/autostart/funasr-nano.desktop ~/.config/systemd/user/funasr-nano.service
-pkill -f "bin/stt-daemon"; pkill -f "[v]oiced.daemon"
-sudo bash /usr/lib/funasr-nano/tools/setup-keyd.sh --remove   # CapsLock 恢复原状
-sudo pacman -R funasr-nano
-rm -rf ~/.stt
+rm -f ~/.config/autostart/capsasr.desktop ~/.config/systemd/user/capsasr.service
+pkill -f "bin/capsasr-daemon"; pkill -f "[v]oiced.daemon"
+sudo bash /usr/lib/capsasr/tools/setup-keyd.sh --remove   # CapsLock 恢复原状
+sudo pacman -R capsasr
+rm -rf ~/.capsasr
 ```
 
 ## 依赖
 
 - Python ≥ 3.11 标准库（tomllib；**无任何 pip 依赖**）
 - 系统：见包 `depends`（pipewire/parec、keyd、wl-clipboard、ydotool+ydotoold、libnotify、Vulkan 加载器）
-- 模型：`stt init` 下载（encoder-f16 469MB + qwen3-0.6b-q8_0 805MB + fsmn-vad 1.7MB，均 Apache-2.0）
+- 模型：`capsasr init` 下载（encoder-f16 469MB + qwen3-0.6b-q8_0 805MB + fsmn-vad 1.7MB，均 Apache-2.0）

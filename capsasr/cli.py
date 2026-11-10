@@ -1,7 +1,7 @@
-"""stt 控制命令：init / config / doctor / cli / daemon。
+"""capsasr 控制命令：init / config / doctor / cli / daemon。
 
-安装布局: /usr/bin/stt + /usr/lib/funasr-nano/{voiced,engines}；
-仓库布局: bin/stt + voiced/。用户数据统一在 ~/.stt。
+安装布局: /usr/bin/capsasr + /usr/lib/capsasr/{capsasr,engines}；
+仓库布局: bin/capsasr + capsasr/。用户数据统一在 ~/.capsasr。
 """
 
 import argparse
@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import backend, downloader
-from .config import APP_ROOT, DEFAULTS, STT_HOME, Config, config_path, models_dir
+from .config import APP_ROOT, DEFAULTS, CAPSASR_HOME, Config, config_path, models_dir
 
 # dotted key → (节, 键, 类型)；类型用于 set 时的值解析/校验
 KEYS: dict[str, tuple[str, str, type]] = {}
@@ -37,7 +37,7 @@ def _toml_value(value) -> str:
 
 
 _CONFIG_TEMPLATE_HEAD = """\
-# Fun-ASR-Nano (stt) 配置。全部字段可省略，默认值见 /usr/lib/funasr-nano/voiced/config.py
+# CapsASR 配置。全部字段可省略，默认值见 /usr/lib/capsasr/capsasr/config.py
 # 后端: mode = auto（cuda→vulkan→cpu 降级）| cuda | vulkan | cpu
 # 选卡: device = auto | 设备名子串（如 "RADV"、"9070"）| 序号
 """
@@ -104,7 +104,7 @@ def set_config_value(dotted: str, value: str, path: Path | None = None) -> None:
     p.write_text("\n".join(lines) + "\n", encoding="utf8")
 
 
-# ---------- stt init ----------
+# ---------- capsasr init ----------
 
 def _ask(prompt: str, default: str = "") -> str:
     suffix = f"[{default}] " if default else ""
@@ -122,17 +122,17 @@ def _download_models() -> bool:
             downloader.download(name, models_dir())
     except RuntimeError as e:
         print(f"下载失败: {e}")
-        print("重跑 stt init 可续传（已就绪的文件自动跳过）")
+        print("重跑 capsasr init 可续传（已就绪的文件自动跳过）")
         return False
     return True
 
 
 def cmd_init(args) -> int:
     if config_path().exists() and not args.force:
-        print(f"已初始化: {config_path()}（重配用 stt init --force）")
+        print(f"已初始化: {config_path()}（重配用 capsasr init --force）")
         return 0
 
-    STT_HOME.mkdir(parents=True, exist_ok=True)
+    CAPSASR_HOME.mkdir(parents=True, exist_ok=True)
     if not _download_models():
         return 1
 
@@ -150,7 +150,7 @@ def cmd_init(args) -> int:
                 print(f"  设备{i}: {n}")
             overrides["backend"]["device"] = "0" if args.yes else _ask("选卡（名字子串或序号）:", "0")
 
-    hw = STT_HOME / "hotwords.txt"
+    hw = CAPSASR_HOME / "hotwords.txt"
     enable_hw = (not args.yes) and _ask("启用热词表? y/n:", "y").lower() in ("y", "yes")
     if enable_hw:
         if not hw.exists():
@@ -174,7 +174,7 @@ def cmd_init(args) -> int:
         print(f"keyd 未配置（热键不可用），执行: sudo bash {APP_ROOT / 'tools/setup-keyd.sh'}")
 
     print(f"\n完成: {write_config(overrides)}")
-    print("启动: stt-daemon   体检: stt doctor")
+    print("启动: capsasr-daemon   体检: capsasr doctor")
     return 0
 
 
@@ -207,30 +207,30 @@ def _setup_autostart(kind: str, bin_dir: Path) -> None:
     if kind == "autostart":
         d = xdg / "autostart"
         d.mkdir(parents=True, exist_ok=True)
-        (d / "funasr-nano.desktop").write_text(
+        (d / "capsasr.desktop").write_text(
             "[Desktop Entry]\nType=Application\n"
-            "Name=Fun-ASR-Nano 语音输入\nComment=长按 CapsLock 说话，松手粘贴\n"
-            f"Exec={bin_dir}/stt-daemon\n",
+            "Name=CapsASR 语音输入\nComment=长按 CapsLock 说话，松手粘贴\n"
+            f"Exec={bin_dir}/capsasr-daemon\n",
             encoding="utf8",
         )
-        print(f"  已写 {d / 'funasr-nano.desktop'}")
+        print(f"  已写 {d / 'capsasr.desktop'}")
     elif kind == "systemd":
         d = xdg / "systemd/user"
         d.mkdir(parents=True, exist_ok=True)
-        (d / "funasr-nano.service").write_text(
-            "[Unit]\nDescription=Fun-ASR-Nano 语音输入守护进程\n"
+        (d / "capsasr.service").write_text(
+            "[Unit]\nDescription=CapsASR 语音输入守护进程\n"
             "PartOf=graphical-session.target\n\n[Service]\n"
-            f"ExecStart={bin_dir}/stt daemon\nRestart=on-failure\nRestartSec=3\n\n"
+            f"ExecStart={bin_dir}/capsasr daemon\nRestart=on-failure\nRestartSec=3\n\n"
             "[Install]\nWantedBy=default.target\n",
             encoding="utf8",
         )
-        print(f"  已写 {d / 'funasr-nano.service'}，启用:")
-        print("    systemctl --user enable --now funasr-nano.service")
+        print(f"  已写 {d / 'capsasr.service'}，启用:")
+        print("    systemctl --user enable --now capsasr.service")
     else:
         print("  跳过自启")
 
 
-# ---------- stt config ----------
+# ---------- capsasr config ----------
 
 def cmd_config(args) -> int:
     if args.action == "path":
@@ -287,14 +287,14 @@ def _cfg_attr(dotted: str) -> str:
     return key
 
 
-# ---------- stt doctor ----------
+# ---------- capsasr doctor ----------
 
 def _ok(flag: bool) -> str:
     return "✓" if flag else "✗"
 
 
 def _daemon_pid() -> int | None:
-    """运行中的守护进程 pid（cmdline 含 python3 -m voiced.daemon）。"""
+    """运行中的守护进程 pid（cmdline 含 python3 -m capsasr.daemon）。"""
     for p in Path("/proc").iterdir():
         if not p.name.isdigit():
             continue
@@ -302,7 +302,7 @@ def _daemon_pid() -> int | None:
             cmd = (p / "cmdline").read_bytes().replace(b"\0", b" ").decode()
         except OSError:
             continue
-        if "python3 -m voiced.daemon" in cmd:
+        if "python3 -m capsasr.daemon" in cmd:
             return int(p.name)
     return None
 
@@ -396,14 +396,14 @@ def cmd_doctor(args) -> int:
     check("DBUS 会话", bool(_daemon_env("DBUS_SESSION_BUS_ADDRESS")))
     check("ydotoold", _ydotoold_running(), "Ctrl+V 模拟需要 ydotoold 运行")
     xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    check("XDG 自启条目", (xdg / "autostart/funasr-nano.desktop").exists())
-    check("systemd user unit", (xdg / "systemd/user/funasr-nano.service").exists())
+    check("XDG 自启条目", (xdg / "autostart/capsasr.desktop").exists())
+    check("systemd user unit", (xdg / "systemd/user/capsasr.service").exists())
 
     print(f"\n{'体检通过' if fails == 0 else f'{fails} 项异常'}")
     return 0 if fails == 0 else 1
 
 
-# ---------- stt cli（socket 转写任意 wav） ----------
+# ---------- capsasr cli（socket 转写任意 wav） ----------
 
 def cmd_cli(args) -> int:
     cfg = Config()
@@ -432,10 +432,10 @@ def cmd_cli(args) -> int:
 # ---------- 入口 ----------
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="stt", description="Fun-ASR-Nano 语音输入控制命令")
+    p = argparse.ArgumentParser(prog="capsasr", description="CapsASR 语音输入控制命令")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("init", help="初始化 ~/.stt：模型下载、后端选择、自启配置")
+    sp = sub.add_parser("init", help="初始化 ~/.capsasr：模型下载、后端选择、自启配置")
     sp.add_argument("--force", action="store_true", help="重新配置（覆盖 config.toml）")
     sp.add_argument("--yes", action="store_true", help="全默认非交互（auto 后端、无热词、autostart）")
     sp.set_defaults(fn=cmd_init)
@@ -454,7 +454,7 @@ def main(argv=None) -> int:
     sp.add_argument("wav")
     sp.set_defaults(fn=cmd_cli)
 
-    sp = sub.add_parser("daemon", help="前台运行守护进程（systemd/调试用；桌面自启用 stt-daemon）")
+    sp = sub.add_parser("daemon", help="前台运行守护进程（systemd/调试用；桌面自启用 capsasr-daemon）")
     sp.add_argument("--config", default=None)
     sp.set_defaults(fn=lambda a: _run_daemon(a))
 
@@ -465,7 +465,7 @@ def main(argv=None) -> int:
 def _run_daemon(args) -> int:
     from .daemon import main as daemon_main
 
-    sys.argv = ["voiced"] + (["--config", args.config] if args.config else [])
+    sys.argv = ["capsasr"] + (["--config", args.config] if args.config else [])
     daemon_main()
     return 0
 
