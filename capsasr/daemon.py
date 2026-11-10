@@ -12,7 +12,7 @@ from .capture import Capture, trim_silence
 from .config import Config
 from .engine import Engine
 from .hotkey import HotkeyListener
-from .notify import notify
+from .notify import notify, set_enabled
 from .paste import paste_text
 from .server import Server
 
@@ -20,6 +20,7 @@ from .server import Server
 class Daemon:
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        set_enabled(cfg.notify_enabled)
         print("[daemon] loading engine...", flush=True)
         self.engine = Engine(cfg)
         self.capture = Capture(cfg)

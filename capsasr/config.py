@@ -32,7 +32,8 @@ DEFAULTS: dict = {
         "vad": "fsmn-vad.gguf",
     },
     "engine": {"language": "中文", "hotwords": "hotwords.txt"},
-    "hotkey": {"layer": "voice"},
+    "hotkey": {"layer": "voice", "hold_ms": 325},
+    "notify": {"enabled": True},
     "capture": {
         "sample_rate": 16000,
         "preroll_ms": 300,
@@ -93,6 +94,8 @@ class Config:
         self.hotwords_file = self._resolve(hw, CAPSASR_HOME) if hw else CAPSASR_HOME / "hotwords.disabled"
 
         self.trigger_layer = str(merged["hotkey"].get("layer", "voice"))
+        self.hold_ms = int(merged["hotkey"].get("hold_ms", 325))
+        self.notify_enabled = bool(merged["notify"].get("enabled", True))
 
         cap = merged["capture"]
         self.sample_rate = int(cap.get("sample_rate", 16000))

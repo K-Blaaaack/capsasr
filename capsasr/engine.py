@@ -9,6 +9,7 @@ from array import array
 from pathlib import Path
 
 from . import backend
+from .notify import notify, set_enabled
 
 
 class Engine:
@@ -26,6 +27,7 @@ class Engine:
 
     def __init__(self, cfg):
         self.cfg = cfg
+        set_enabled(cfg.notify_enabled)
         self._lock = threading.Lock()
         self.hotwords = cfg.load_hotwords()
 
@@ -58,8 +60,6 @@ class Engine:
                 tried.append(f"{cand.name}: {e}")
                 print(f"[engine] 后端 {cand.name} 启动失败（{cand.note}）: {e}", flush=True)
                 if i + 1 < len(candidates):
-                    from .notify import notify
-
                     notify(
                         f"后端 {cand.name} 启动失败",
                         f"降级到 {candidates[i + 1].name}",

@@ -84,7 +84,9 @@ def set_config_value(dotted: str, value: str, path: Path | None = None) -> None:
             sec_start = i
             break
     if sec_start is None:
-        lines += ["", f"[{sec}]", f"{key} = {_toml_value(val)}"]
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines += [f"[{sec}]", f"{key} = {_toml_value(val)}"]
     else:
         sec_end = len(lines)
         for i in range(sec_start + 1, len(lines)):
@@ -171,7 +173,7 @@ def cmd_init(args) -> int:
     except OSError:
         keyd_ok = False
     if not keyd_ok:
-        print(f"keyd 未配置（热键不可用），执行: sudo bash {APP_ROOT / 'tools/setup-keyd.sh'}")
+        print(f"keyd 未配置（热键不可用），执行: sudo {_installed_bin_dir() / 'capsasr'} setup-keyd")
 
     print(f"\n完成: {write_config(overrides)}")
     print("启动: capsasr-daemon   体检: capsasr doctor")
@@ -245,6 +247,10 @@ def cmd_config(args) -> int:
     if args.action == "set":
         set_config_value(args.key, args.value)
         print(f"{config_path()}: {args.key} = {args.value}")
+        if args.key == "hotkey.hold_ms":
+            print("执行 sudo capsasr setup-keyd 使按住阈值生效")
+        elif args.key == "notify.enabled":
+            print('重启守护进程生效（pkill -f "[c]apsasr.daemon"，壳会自动拉起）')
         return 0
     # get / list
     cfg = Config()
@@ -280,6 +286,7 @@ def _cfg_attr(dotted: str) -> str:
         "models.llm": "model_llm",
         "models.vad": "model_vad",
         "hotkey.layer": "trigger_layer",
+        "notify.enabled": "notify_enabled",
     }
     if dotted in special:
         return special[dotted]
@@ -454,12 +461,29 @@ def main(argv=None) -> int:
     sp.add_argument("wav")
     sp.set_defaults(fn=cmd_cli)
 
+    sp = sub.add_parser("setup-keyd", help="配置 keyd 热键（sudo）：按住阈值生效 / 回滚")
+    sp.add_argument("--hold-ms", type=int, help="按住时长阈值毫秒（默认取配置 hotkey.hold_ms）")
+    sp.add_argument("--remove", action="store_true", help="删除 keyd 配置，CapsLock 恢复原状")
+    sp.set_defaults(fn=cmd_setup_keyd)
+
     sp = sub.add_parser("daemon", help="前台运行守护进程（systemd/调试用；桌面自启用 capsasr-daemon）")
     sp.add_argument("--config", default=None)
     sp.set_defaults(fn=lambda a: _run_daemon(a))
 
     args = p.parse_args(argv)
     return args.fn(args) or 0
+
+
+def cmd_setup_keyd(args) -> int:
+    """把配置里的按住阈值写入 keyd（需 sudo）；--remove 回滚。"""
+    script = APP_ROOT / "tools/setup-keyd.sh"
+    if not script.exists():
+        print(f"缺少 {script}", file=sys.stderr)
+        return 1
+    if args.remove:
+        return subprocess.call(["sudo", "bash", str(script), "--remove"])
+    hold = args.hold_ms if args.hold_ms is not None else Config().hold_ms
+    return subprocess.call(["sudo", "bash", str(script), str(hold)])
 
 
 def _run_daemon(args) -> int:

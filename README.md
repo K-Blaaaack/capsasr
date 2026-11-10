@@ -47,9 +47,10 @@ capsasr-daemon &
 | `capsasr doctor` | 环境体检：python/模型/后端探测/设备/daemon/keyd/ydotoold（`--verify` 做完整 sha256） |
 | `capsasr config` | 列出全部配置（`*`=配置文件显式设置） |
 | `capsasr config get backend.mode` | 查单键 |
-| `capsasr config set backend.mode vulkan` | **终端改写配置**：行级编辑，保留注释与结构 |
+| `capsasr config set backend.mode vulkan` | **终端改写配置**：行级编辑，保留注释与结构（改 `hotkey.hold_ms` 后需 `sudo capsasr setup-keyd` 生效；改 `notify.enabled` 后重启 daemon） |
 | `capsasr config edit` | 用 $EDITOR 打开配置 |
 | `capsasr config path` | 配置文件路径 |
+| `capsasr setup-keyd` | 把 `hotkey.hold_ms` 写入 keyd（sudo）；`--hold-ms N` 直接指定，`--remove` 回滚 |
 | `capsasr cli a.wav` | 经守护进程转写任意音频（16kHz 16bit PCM wav） |
 | `capsasr daemon` | 前台运行守护进程（systemd/调试用） |
 | `capsasr-daemon` | 带环境自愈+崩溃重拉的包装壳（桌面自启条目指向它） |
