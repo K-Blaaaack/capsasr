@@ -10,6 +10,7 @@ complete -c capsasr -n __fish_use_subcommand -a doctor -d '环境体检'
 complete -c capsasr -n __fish_use_subcommand -a cli -d '经守护进程转写 wav'
 complete -c capsasr -n __fish_use_subcommand -a daemon -d '前台运行守护进程'
 complete -c capsasr -n __fish_use_subcommand -a setup-keyd -d '配置 keyd 热键（sudo）'
+complete -c capsasr -n __fish_use_subcommand -a uninstall -d '清理用户级痕迹（卸载前执行）'
 
 # 参数
 complete -c capsasr -n '__fish_seen_subcommand_from init' -l force -d '重新配置'
@@ -42,3 +43,5 @@ complete -c capsasr -n '__fish_seen_subcommand_from config; and contains -- (com
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] backend.mode' -a 'auto cuda vulkan cpu'
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] notify.enabled paste.restore_clipboard' -a 'true false'
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] engine.language' -a '中文 英文 日文'
+
+complete -c capsasr -n '__fish_seen_subcommand_from uninstall' -l purge -d '连 ~/.capsasr（含模型）一起删除'

@@ -19,12 +19,13 @@
 
 pkgname=capsasr
 pkgver=0.4.0
-pkgrel=2
+pkgrel=3
 pkgdesc="本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)"
 arch=(x86_64)
 _repo="https://github.com/Wry-Zen/capsasr"
 url="$_repo"
 license=(MIT Apache-2.0)
+install=capsasr.install
 depends=(python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader)
 optdepends=(
   'vulkan-tools: 设备探测回退'

@@ -7,13 +7,15 @@
 import argparse
 import json
 import os
+import re
+import shutil
 import socket
 import subprocess
 import sys
 from pathlib import Path
 
 from . import backend, downloader
-from .config import APP_ROOT, DEFAULTS, CAPSASR_HOME, Config, config_path, models_dir
+from .config import APP_ROOT, CAPSASR_HOME, DEFAULTS, RUNTIME_DIR, Config, config_path, models_dir
 
 # dotted key → (节, 键, 类型)；类型用于 set 时的值解析/校验
 KEYS: dict[str, tuple[str, str, type]] = {}
@@ -152,38 +154,88 @@ def cmd_init(args) -> int:
                 print(f"  设备{i}: {n}")
             overrides["backend"]["device"] = "0" if args.yes else _ask("选卡（名字子串或序号）:", "0")
 
+    hold = 325 if args.yes else _ask_int("按住激活时长 ms:", 325, 50, 2000)
+    if hold != 325:
+        overrides["hotkey"] = {"hold_ms": hold}
+    use_notify = (not args.yes) and _ask("启用右下角通知? y/n:", "n").lower() in ("y", "yes")
+    if use_notify:
+        overrides["notify"] = {"enabled": True}
+
     hw = CAPSASR_HOME / "hotwords.txt"
     enable_hw = (not args.yes) and _ask("启用热词表? y/n:", "y").lower() in ("y", "yes")
     if enable_hw:
         if not hw.exists():
             hw.write_text(
-                "# 每行一个热词，# 开头为注释。改后执行: pkill -HUP -f [v]oiced.daemon\n",
+                "# 每行一个热词，# 开头为注释。改后执行: pkill -HUP -f [c]apsasr.daemon\n",
                 encoding="utf8",
             )
         print(f"热词: {hw}")
     else:
         overrides["engine"] = {"hotwords": ""}
 
+    p = write_config(overrides)
     kind = "autostart" if args.yes else _ask("自启 autostart/systemd/none:", "autostart")
     _setup_autostart(kind, _installed_bin_dir())
+    if kind == "autostart":
+        _start_daemon_now()
 
     try:
         conf = Path("/etc/keyd/default.conf").read_text()
-        keyd_ok = "overloadt(" in conf and "[voice]" in conf
     except OSError:
-        keyd_ok = False
-    if not keyd_ok:
-        print(f"keyd 未配置（热键不可用），执行: sudo {_installed_bin_dir() / 'capsasr'} setup-keyd")
+        conf = ""
+    m = re.search(r"overloadt\([^)]*?(\d+)\s*\)", conf)
+    capsasr_bin = _installed_bin_dir() / "capsasr"
+    if not m:
+        print(f"keyd 未配置（热键不可用），执行: sudo {capsasr_bin} setup-keyd")
+    elif int(m.group(1)) != hold:
+        print(f"keyd 当前阈值 {m.group(1)}ms ≠ 配置 {hold}ms，执行: sudo {capsasr_bin} setup-keyd 同步")
 
-    print(f"\n完成: {write_config(overrides)}")
-    print("启动: capsasr-daemon   体检: capsasr doctor")
+    print(f"\n完成: {p}")
+    print("体检: capsasr doctor")
     return 0
 
 
+def _ask_int(prompt: str, default: int, lo: int, hi: int) -> int:
+    try:
+        v = int(_ask(prompt, str(default)))
+    except ValueError:
+        return default
+    return v if lo <= v <= hi else default
+
+
+def _start_daemon_now() -> None:
+    """立即后台拉起守护进程（init 选 autostart 时）：不等下次登录。"""
+    launcher = _installed_bin_dir() / "capsasr-daemon"
+    if not launcher.exists():
+        print(f"未找到 {launcher}，请手动运行 capsasr-daemon")
+        return
+    subprocess.Popen(
+        [str(launcher)],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    print("守护进程已在后台启动（立即可用；自启条目负责以后的登录）")
+
+
 def _installed_bin_dir() -> Path:
-    """控制命令所在 bin 目录：仓库态 APP_ROOT/bin；安装态 {prefix}/bin。"""
+    """控制命令所在 bin 目录（自启 Exec/systemd ExecStart 用）。
+
+    优先取实际运行的 capsasr 所在目录（PATH 解析，安装态=/usr/bin，仓库态=repo/bin），
+    兜底按布局推导：{prefix}/lib/capsasr → {prefix}/bin（注意两层 parent）。
+    """
+    exe = shutil.which("capsasr") or (
+        Path(sys.argv[0]).resolve() if Path(sys.argv[0]).exists() else None
+    )
+    if exe:
+        own = Path(exe).resolve().parent
+        if (own / "capsasr-daemon").exists():
+            return own
     repo_bin = APP_ROOT / "bin"
-    return repo_bin if repo_bin.is_dir() else APP_ROOT.parent / "bin"
+    if repo_bin.is_dir():
+        return repo_bin
+    return APP_ROOT.parent.parent / "bin"
 
 
 def _probe_summary() -> list[str]:
@@ -404,6 +456,8 @@ def cmd_doctor(args) -> int:
     check("ydotoold", _ydotoold_running(), "Ctrl+V 模拟需要 ydotoold 运行")
     xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     check("XDG 自启条目", (xdg / "autostart/capsasr.desktop").exists())
+    if (xdg / "autostart/capsasr.desktop").exists() and not alive:
+        print("  ! 自启条目存在但守护进程未运行：刚开机请稍候；否则运行 capsasr-daemon 看报错")
     check("systemd user unit", (xdg / "systemd/user/capsasr.service").exists())
 
     print(f"\n{'体检通过' if fails == 0 else f'{fails} 项异常'}")
@@ -436,16 +490,55 @@ def cmd_cli(args) -> int:
     return 1
 
 
+# ---------- capsasr uninstall（卸载前执行；pacman 不会动用户主目录） ----------
+
+def cmd_uninstall(args) -> int:
+    print("停止守护进程…")
+    for pat in (r"[c]apsasr\.daemon", r"[c]apsasr-daemon", r"[c]apsasr-engine"):
+        subprocess.run(["pkill", "-f", pat], check=False)
+
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    desktop = xdg / "autostart/capsasr.desktop"
+    if desktop.exists():
+        desktop.unlink()
+        print(f"已移除 {desktop}")
+    unit = xdg / "systemd/user/capsasr.service"
+    if unit.exists():
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", "capsasr.service"],
+            check=False, capture_output=True,
+        )
+        unit.unlink()
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        print(f"已移除 {unit}")
+    for name in ("capsasr.sock", "capsasr.lock"):
+        (RUNTIME_DIR / name).unlink(missing_ok=True)
+
+    if args.purge:
+        shutil.rmtree(CAPSASR_HOME, ignore_errors=True)
+        print(f"已删除用户数据 {CAPSASR_HOME}（含模型）")
+    else:
+        print(f"用户数据保留在 {CAPSASR_HOME}（彻底清除加 --purge）")
+
+    print("卸载系统包: sudo pacman -R capsasr")
+    print("恢复 CapsLock 原功能（可选）: sudo capsasr setup-keyd --remove（在卸载系统包前执行）")
+    return 0
+
+
 # ---------- 入口 ----------
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="capsasr", description="CapsASR 语音输入控制命令")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("init", help="初始化 ~/.capsasr：模型下载、后端选择、自启配置")
+    sp = sub.add_parser("init", help="初始化 ~/.capsasr：模型下载、后端/选卡、激活时长、通知、热词、自启")
     sp.add_argument("--force", action="store_true", help="重新配置（覆盖 config.toml）")
-    sp.add_argument("--yes", action="store_true", help="全默认非交互（auto 后端、无热词、autostart）")
+    sp.add_argument("--yes", action="store_true", help="全默认非交互（auto 后端、325ms、无通知、无热词、autostart）")
     sp.set_defaults(fn=cmd_init)
+
+    sp = sub.add_parser("uninstall", help="清理用户级痕迹（自启/服务/进程/数据）；应在 pacman -R 之前执行")
+    sp.add_argument("--purge", action="store_true", help="连 ~/.capsasr（含模型）一起删除")
+    sp.set_defaults(fn=cmd_uninstall)
 
     sp = sub.add_parser("config", help="查看/修改配置")
     sp.add_argument("action", choices=["get", "set", "edit", "path", "list"], nargs="?", default="list")

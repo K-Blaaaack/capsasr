@@ -1,8 +1,9 @@
 pkgbase = capsasr
 	pkgdesc = 本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)
 	pkgver = 0.4.0
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/Wry-Zen/capsasr
+	install = capsasr.install
 	arch = x86_64
 	license = MIT
 	license = Apache-2.0

@@ -23,6 +23,7 @@ _capsasr() {
         'cli:经守护进程转写 wav'
         'daemon:前台运行守护进程'
         'setup-keyd:配置 keyd 热键（sudo）'
+        'uninstall:清理用户级痕迹（卸载前执行）'
     )
 
     _arguments -C '1:命令:->cmd' '*::参数:->args'
@@ -47,6 +48,9 @@ _capsasr() {
                     ;;
                 setup-keyd)
                     _arguments '--hold-ms[按住阈值(ms)]:毫秒:' '--remove[回滚 keyd 配置]'
+                    ;;
+                uninstall)
+                    _arguments '--purge[连 ~/.capsasr(含模型)一起删除]'
                     ;;
                 config)
                     local -a actions

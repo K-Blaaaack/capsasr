@@ -33,7 +33,7 @@ DEFAULTS: dict = {
     },
     "engine": {"language": "中文", "hotwords": "hotwords.txt"},
     "hotkey": {"layer": "voice", "hold_ms": 325},
-    "notify": {"enabled": True},
+    "notify": {"enabled": False},
     "capture": {
         "sample_rate": 16000,
         "preroll_ms": 300,

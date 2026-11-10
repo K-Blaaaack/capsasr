@@ -32,7 +32,7 @@ sudo pacman -U capsasr-0.4.0-1-x86_64.pkg.tar.zst
 # B. 从源码构建（自动拉 Release 里的引擎二进制；需 base-devel）
 git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -si
 
-# 初始化（模型下载、后端与选卡、热词开关、自启方式）
+# 初始化（模型下载、后端与选卡、激活时长、通知开关、热词、自启；选 autostart 会立即后台启动守护进程）
 capsasr init
 
 # keyd 热键（唯一需要 sudo 的环节，使用 hotkey.hold_ms 配置的阈值）
@@ -58,6 +58,7 @@ capsasr-daemon &
 | `capsasr config edit` | 用 $EDITOR 打开配置 |
 | `capsasr config path` | 配置文件路径 |
 | `capsasr setup-keyd` | 把 `hotkey.hold_ms` 写入 keyd（sudo）；`--hold-ms N` 直接指定，`--remove` 回滚 |
+| `capsasr uninstall` | 清理用户级痕迹（自启/服务/进程/数据）；**应在 `pacman -R` 之前执行**，`--purge` 连模型一起删 |
 | `capsasr cli a.wav` | 经守护进程转写任意音频（16kHz 16bit PCM wav） |
 | `capsasr daemon` | 前台运行守护进程（systemd/调试用） |
 | `capsasr-daemon` | 带环境自愈+崩溃重拉的包装壳（桌面自启条目指向它） |
@@ -120,11 +121,9 @@ cmake --build build -j 32 --target llama-funasr-cli
 ## 回滚 / 卸载
 
 ```bash
-rm -f ~/.config/autostart/capsasr.desktop ~/.config/systemd/user/capsasr.service
-pkill -f "bin/capsasr-daemon"; pkill -f "[v]oiced.daemon"
-sudo bash /usr/lib/capsasr/tools/setup-keyd.sh --remove   # CapsLock 恢复原状
-sudo pacman -R capsasr
-rm -rf ~/.capsasr
+capsasr uninstall --purge        # 清自启/服务/进程/数据（--purge 连模型；不加则保留 ~/.capsasr）
+sudo capsasr setup-keyd --remove  # CapsLock 恢复原状（可选）
+sudo pacman -R capsasr            # 卸载系统包
 ```
 
 ## 依赖
