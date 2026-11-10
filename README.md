@@ -23,14 +23,18 @@ CapsLock ──keyd(/etc/keyd, overloadt 325ms)──> voice层 ──keyd liste
 
 ## 安装（Arch）
 
-两种方式二选一，之后初始化步骤相同：
+两种方式二选一，之后初始化步骤相同（CUDA 后端是独立子包 `capsasr-cuda`，
+仅 NVIDIA 卡用户需要，会连带安装 cuda 工具链与 nccl）：
 
 ```bash
-# A. 预构建包（GitHub Release 下载 capsasr-0.4.0-1-x86_64.pkg.tar.zst）
-sudo pacman -U capsasr-0.4.0-1-x86_64.pkg.tar.zst
+# A. 预构建包（GitHub Release 下载）
+sudo pacman -U capsasr-0.4.1-1-x86_64.pkg.tar.zst
+#   想用 CUDA 后端（auto 模式优先于 Vulkan）再追加：
+#   sudo pacman -U capsasr-cuda-0.4.1-1-x86_64.pkg.tar.zst
 
-# B. 从源码构建（自动拉 Release 里的引擎二进制；需 base-devel）
-git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -si
+# B. 从源码构建（自动拉 Release 里的引擎二进制；需 base-devel 与 patchelf）
+git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -sf
+sudo pacman -U capsasr-0.4.1-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cuda-*.zst
 
 # 初始化（模型下载、后端与选卡、激活时长、通知开关、热词、自启；选 autostart 会立即后台启动守护进程）
 capsasr init
@@ -88,35 +92,43 @@ device = "auto"    # 设备名子串（如 "RADV"、"9070"）或序号；auto=�
 启动探测（二进制存在 + 驱动库可加载），spawn 后 60s 内未 READY 自动换下一个后端并气泡通知。
 显式指定的后端只降级到 CPU，不会悄悄换卡（点名某张卡通常有理由）。
 选卡结果经 `GGML_VK_VISIBLE_DEVICES` / `CUDA_VISIBLE_DEVICES` 注入；设备枚举优先引擎
-`--list-devices`（新版补丁），旧二进制自动回退 `vulkaninfo --summary` / `nvidia-smi -L`。
+`--list-devices`（Vulkan 引擎 0.4.1 起已编译入），CUDA 旧二进制自动回退
+`vulkaninfo --summary` / `nvidia-smi -L`。
 
 ## 引擎说明
 
-引擎二进制（包内**携带两个**）：`/usr/lib/capsasr/engines/capsasr-engine-vulkan`（现役走 AMD Radeon RX 9070）与
-`capsasr-engine-cuda`（Blackwell/sm_120）。CUDA 版需要 CUDA 运行库（cudart/cublas/nccl，来自 `cuda` 包，
-optdepends 声明）；缺失时探测会如实报告"运行库✗缺 …"并自动跳过该后端。
+引擎二进制（**拆两个包**）：主包带 `/usr/lib/capsasr/engines/capsasr-engine-vulkan`（现役走 AMD Radeon RX 9070）；
+`capsasr-cuda` 子包带 `capsasr-engine-cuda`（Blackwell/sm_120，depends 声明 nvidia-utils/cuda/nccl），
+auto 模式下优先于 Vulkan，未安装则探测自动跳过。CUDA 引擎包内已剥离 RUNPATH，
+运行库（cudart/cublas/nccl）由 daemon 在 spawn 时注入 `LD_LIBRARY_PATH` 解析
+（`/opt/cuda`、`CUDA_HOME` 等位置均可）。
 
 Fun-ASR 官方 llama.cpp fork，GGUF Q8_0（官方验证 CER 与 PyTorch 参考差 0.02%）。本项目补丁（`tools/funasr-cli.patch`）：
 SIGUSR1 尾段提交（含 select+read 防死锁）、`--hotwords` 注入、`--ngl`/`--enc-device` GPU 化、
-`--enc-threads`、`--list-devices`（选卡探测；现存二进制编译于该参数之前，自动回退 vulkaninfo/nvidia-smi）。
+`--enc-threads`、`--list-devices`（选卡探测；Vulkan 引擎 0.4.1 起已编译入，CUDA 旧二进制自动回退 vulkaninfo/nvidia-smi）。
 
 重新编译（Vulkan）：拉 [Fun-ASR](https://github.com/QwenAudio/Fun-ASR) tarball → `patch -p1 < tools/funasr-cli.patch` → 拉固定版本 llama.cpp（`8086439a4cea94c71a5dfb8fe4ad1546aebd640f`）→ 在 `runtime/llama.cpp/` 下：
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=ON -DLLAMA_CURL=OFF \
+      -DCMAKE_SKIP_RPATH=ON -DCMAKE_EXE_LINKER_FLAGS="-Wl,-z,relro,-z,now" \
       -DFETCHCONTENT_SOURCE_DIR_LLAMA=<本地llama.cpp路径>
 cmake --build build -j 32 --target llama-funasr-cli
 ```
 依赖：`vulkan-headers spirv-headers shaderc`。CUDA 版把 `-DGGML_VULKAN=ON` 换成 `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`，需 `/opt/cuda`。
+链接参数说明：`-z now` 补全 FULL RELRO（namcap 要求）；`CMAKE_SKIP_RPATH` 使二进制不带
+`/opt/cuda` RUNPATH（namcap 报 Insecure RUNPATH）——CUDA 运行库改由 daemon 经
+`LD_LIBRARY_PATH` 注入（`capsasr/backend.py`），兼容任意 CUDA 安装位置。
 
 ## 打包分发（维护者）
 
 分发走 **GitHub Release**（AUR 新用户注册暂关；`PKGBUILD`/`.SRCINFO` 保留，注册恢复后可直接提交）：
 
-- Release 资产三件：`capsasr-engine-vulkan`、`capsasr-engine-cuda`、预构建包 `capsasr-0.4.0-1-x86_64.pkg.tar.zst`
-- `depends`：python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader
-- `optdepends`：vulkan-tools（设备探测回退）、cuda（CUDA 后端运行库）
-- 构建包：`cd packaging && makepkg -sf`（source 指向 tag 归档 + Release 引擎）
-- 本地验证：见 PKGBUILD 头注释（`_code`/`_engine` 环境变量指向本地产物）
+- Release 资产四件：`capsasr-engine-vulkan`、`capsasr-engine-cuda`、预构建包 `capsasr-0.4.1-1-x86_64.pkg.tar.zst` 与 `capsasr-cuda-0.4.1-1-x86_64.pkg.tar.zst`
+- `depends`（主包）：bash glibc libstdc++ libgcc libgomp python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader
+- `depends`（capsasr-cuda）：capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda nccl
+- 构建包：`cd packaging && makepkg -sf`（需 `pacman -S patchelf`，用于剥离 CUDA 引擎 RUNPATH）
+- 本地验证：见 PKGBUILD 头注释（source 不收绝对路径，产物以基名放入 PKGBUILD 目录）
+- namcap 残留告警均有解释：FULL RELRO 需按上面参数重编译引擎；keyd 等子进程运行依赖 namcap 静态分析看不见；cuda/nccl 库告警仅在未装它们的构建机上出现
 
 ## 回滚 / 卸载
 

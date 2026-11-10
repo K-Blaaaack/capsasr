@@ -1,5 +1,5 @@
---- a/runtime/llama.cpp/funasr-cli/funasr-cli.cpp	2026-10-12 17:07:47.000000000 +0800
-+++ b/runtime/llama.cpp/funasr-cli/funasr-cli.cpp	2026-11-08 22:46:02.729587248 +0800
+--- a/runtime/llama.cpp/funasr-cli/funasr-cli.cpp
++++ b/runtime/llama.cpp/funasr-cli/funasr-cli.cpp
 @@ -25,6 +25,8 @@
  
  #include <cmath>
@@ -274,17 +274,18 @@
      finish_decoder(false);
      emit_line("DONE","");
      funasr_vad_stream_close(vs);
-@@ -479,7 +576,7 @@
+@@ -479,8 +576,8 @@
  }
  
  int main(int argc,char**argv){
 -    std::string enc_path,llm_path,wav_path,vad_path,lang; int npred=512; double chunk_sec=0; float rep=1.0f;
-+    std::string enc_path,llm_path,wav_path,vad_path,lang,hotwords,enc_dev="auto"; int npred=512, ngl=0; double chunk_sec=0; float rep=1.0f;
 -    int vad_maxseg=30000; bool stream=false;
++    std::string enc_path,llm_path,wav_path,vad_path,lang,hotwords,enc_dev="auto"; int npred=512, ngl=0; double chunk_sec=0; float rep=1.0f;
 +    int vad_maxseg=30000; bool stream=false, list_devices=false;
      for(int i=1;i<argc;i++){
          if(!strcmp(argv[i],"--enc")&&i+1<argc)enc_path=argv[++i];
-@@ -491,6 +588,11 @@
+         else if(!strcmp(argv[i],"-m")&&i+1<argc)llm_path=argv[++i];
+@@ -491,8 +588,23 @@
          else if(!strcmp(argv[i],"--vad-maxseg")&&i+1<argc)vad_maxseg=atoi(argv[++i]);
          else if(!strcmp(argv[i],"--rep")&&i+1<argc)rep=atof(argv[++i]);
          else if(!strcmp(argv[i],"--lang")&&i+1<argc)lang=argv[++i];
@@ -296,19 +297,22 @@
          else if(!strcmp(argv[i],"--stream"))stream=true;
 -        else {fprintf(stderr,"usage: %s --enc enc.gguf -m llm.gguf (-a audio.wav | --stream) [-n npred] [--chunk sec] [--vad fsmn-vad.gguf [--vad-maxseg ms]] [--lang language]\n",argv[0]);return 1;}
 +        else {fprintf(stderr,"usage: %s --enc enc.gguf -m llm.gguf (-a audio.wav | --stream) [-n npred] [--chunk sec] [--vad fsmn-vad.gguf [--vad-maxseg ms]] [--lang language] [--ngl n] [--enc-threads n] [--enc-device auto|cuda|cpu] [--hotwords words] [--list-devices]\n",argv[0]);return 1;}
-     }
-@@ -504,7 +606,18 @@
-     int64_t t0=ggml_time_us();
- 
++    }
++
 +    // --list-devices: 打印 backend registry 里的全部设备（一行 "名字: 描述"），
 +    // 供守护进程选卡（GGML_VK_VISIBLE_DEVICES / CUDA_VISIBLE_DEVICES）前探测。
++    // 须在 missing args 校验之前：守护进程不带模型参数裸调本开关。
 +    if(list_devices){ ggml_backend_load_all();
 +        int n=ggml_backend_dev_count();
 +        for(int i=0;i<n;i++){ ggml_backend_dev_t dev=ggml_backend_dev_get(i);
 +            printf("%s: %s\n", ggml_backend_dev_name(dev), ggml_backend_dev_description(dev)); }
 +        return 0;
-+    }
-+
+     }
+     if(enc_path.empty()||llm_path.empty()||(!stream&&wav_path.empty())){fprintf(stderr,"missing args\n");return 1;}
+     if(stream&&vad_path.empty()){fprintf(stderr,"--stream requires --vad fsmn-vad.gguf\n");return 1;}
+@@ -504,7 +616,9 @@
+     int64_t t0=ggml_time_us();
+ 
      asr_decoder d;
 -    if(!load_decoder(enc_path.c_str(),llm_path.c_str(),rep,lang,d)){free_decoder(d);return 1;}
 +    bool enc_gpu = enc_dev=="cuda" || (enc_dev=="auto" && funasr_gpu_dev()!=nullptr);

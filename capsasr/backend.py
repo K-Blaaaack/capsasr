@@ -5,9 +5,12 @@
 - 设备枚举 = 优先引擎自带 --list-devices（补丁提供）；旧二进制无此参数时
   回退 vulkaninfo --summary / nvidia-smi -L
 选卡结果通过环境变量注入子进程（GGML_VK_VISIBLE_DEVICES / CUDA_VISIBLE_DEVICES）。
+CUDA 运行库（cudart/cublas 等）不在系统默认路径且包内引擎无 RUNPATH，
+探测与 spawn 统一经 LD_LIBRARY_PATH 注入解析路径。
 """
 
 import ctypes
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -54,11 +57,15 @@ def _run(cmd: list, timeout: float = 10) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
-def missing_libs(bin_path: Path) -> list[str]:
-    """ldd 检查动态库可解析；返回 not found 的库名（ldd 不可用时返回空表）。"""
+def missing_libs(bin_path: Path, env: dict | None = None) -> list[str]:
+    """ldd 检查动态库可解析；返回 not found 的库名（ldd 不可用时返回空表）。
+
+    env 必须与 spawn 环境一致，否则 CUDA 引擎（无 RUNPATH）的探测结果失真。
+    """
     try:
         r = subprocess.run(
-            ["ldd", str(bin_path)], capture_output=True, text=True, timeout=10
+            ["ldd", str(bin_path)], capture_output=True, text=True, timeout=10,
+            env={**os.environ, **env} if env else None,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -67,6 +74,36 @@ def missing_libs(bin_path: Path) -> list[str]:
         for line in r.stdout.splitlines()
         if "not found" in line
     ]
+
+
+_CUDA_LIB_DIRS = (
+    "/opt/cuda/lib64",                     # Arch cuda 包
+    "/opt/cuda/targets/x86_64-linux/lib",  # 上游 CUDA 布局
+    "/usr/local/cuda/lib64",               # runfile 默认安装位
+)
+
+
+def _cuda_runtime_path() -> str:
+    """CUDA 运行库候选目录（存在的才收录），供 LD_LIBRARY_PATH 注入。"""
+    dirs: list[str] = []
+    for var in ("CUDA_HOME", "CUDA_ROOT"):
+        base = os.environ.get(var)
+        if base:
+            dirs += [f"{base}/lib64", f"{base}/lib"]
+    out: list[str] = []
+    for d in dirs + list(_CUDA_LIB_DIRS):
+        if d not in out and Path(d).is_dir():
+            out.append(d)
+    return ":".join(out)
+
+
+def _lib_env(backend: str) -> dict:
+    """后端库搜索环境；探测（ldd）与 spawn 必须共用，保证判据一致。"""
+    if backend != "cuda":
+        return {}
+    lp = os.environ.get("LD_LIBRARY_PATH", "")
+    merged = ":".join(p for p in (_cuda_runtime_path(), lp) if p)
+    return {"LD_LIBRARY_PATH": merged} if merged else {}
 
 
 def list_vulkan_devices() -> list[tuple[str, str]]:
@@ -78,7 +115,8 @@ def list_vulkan_devices() -> list[tuple[str, str]]:
             devs = []
             for line in out.splitlines():
                 name, _, desc = line.strip().partition(": ")
-                if name.startswith("VULKAN"):
+                # ggml 设备名形如 "Vulkan0"，大小写不敏感匹配，排除 CPU 行
+                if name.lower().startswith("vulkan"):
                     devs.append((name, desc))
             if devs:
                 return devs
@@ -127,11 +165,11 @@ def _gpu_candidate(backend: str, cfg) -> Candidate | None:
         return None
     if backend == "vulkan" and not _lib_loadable("libvulkan.so.1"):
         return None
-    if missing_libs(bin):  # 例如 CUDA 运行库(cudart/cublas/nccl)缺失：spawn 必失败
+    env = _lib_env(backend)
+    if missing_libs(bin, env):  # 例如 CUDA 运行库(cudart/cublas/nccl)缺失：spawn 必失败
         return None
 
     devs = list_cuda_devices() if backend == "cuda" else list_vulkan_devices()
-    env = {}
     note = "全部可见设备" if len(devs) <= 1 else f"多卡可见: {', '.join(n for n, _ in devs)}"
     if devs:
         idx = _match_index(devs, cfg.backend_device)
@@ -155,16 +193,19 @@ def _gpu_candidate(backend: str, cfg) -> Candidate | None:
 
 
 def _cpu_candidate(cfg) -> Candidate | None:
-    bin = _engine_bin("vulkan") or _engine_bin("cuda")
-    if bin is None:
-        return None
-    return Candidate(
-        name="cpu",
-        bin=bin,
-        argv=["--ngl", "0", "--enc-device", "cpu",
-              "--enc-threads", str(cfg.backend_enc_threads)],
-        note="纯 CPU（零显存，延迟约翻倍）",
-    )
+    for b in ("vulkan", "cuda"):
+        bin = _engine_bin(b)
+        if bin is None:
+            continue
+        return Candidate(
+            name="cpu",
+            bin=bin,
+            env=_lib_env(b),
+            argv=["--ngl", "0", "--enc-device", "cpu",
+                  "--enc-threads", str(cfg.backend_enc_threads)],
+            note="纯 CPU（零显存，延迟约翻倍）",
+        )
+    return None
 
 
 def select(cfg) -> list[Candidate]:

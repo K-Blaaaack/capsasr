@@ -246,7 +246,7 @@ def _probe_summary() -> list[str]:
         lib_ok = backend._lib_loadable(
             "libcuda.so.1" if b == "cuda" else "libvulkan.so.1"
         )
-        missing = backend.missing_libs(bin_path) if bin_path else []
+        missing = backend.missing_libs(bin_path, backend._lib_env(b)) if bin_path else []
         devs = backend.list_cuda_devices() if b == "cuda" else backend.list_vulkan_devices()
         names = ", ".join(n for n, _ in devs) or "无设备"
         status = "可用" if bin_ok and lib_ok and not missing else "不可用"

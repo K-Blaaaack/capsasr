@@ -1,58 +1,74 @@
 # CapsASR 打包脚本（Arch；Release 分发优先，AUR 可选）
 #
+# 拆分双包:
+#   capsasr       主包（Python 运行体 + Vulkan 引擎 + 控制命令/补全/文档）
+#   capsasr-cuda  CUDA 引擎（depends: nvidia-utils cuda nccl；NVIDIA 用户加装，
+#                 auto 模式下优先于 Vulkan，不装则探测自动跳过）
 # 布局: /usr/bin/{capsasr,capsasr-daemon}（控制命令, 进 PATH）
 #       /usr/lib/capsasr/{capsasr,engines,tools}（核心运行体, 不进 PATH, 防与系统 llama.cpp 冲突）
+# CUDA 引擎在打包期用 patchelf 剥离 /opt/cuda RUNPATH（namcap: Insecure RUNPATH）；
+# 运行期由 daemon 注入 LD_LIBRARY_PATH（capsasr/backend.py，兼容 CUDA_HOME 等任意安装位置）。
 # 包不含模型与用户配置——装包后 `capsasr init` 完成（数据落 ~/.capsasr）。
 #
 # 发布前（顺序）:
-#   1. 代码推上去并打 tag v$pkgver（_repo 已指向真实仓库）
+#   1. 代码推上去并打 tag v$pkgver
 #   2. 建 Release v$pkgver，上传两个引擎二进制 capsasr-engine-{vulkan,cuda}
+#      （重编译时加 -DCMAKE_SKIP_RPATH=ON -DCMAKE_EXE_LINKER_FLAGS="-Wl,-z,relro,-z,now"：
+#        FULL RELRO 只能在链接期解决，RUNPATH 剥离后 daemon 端已适配，见 ARCHITECTURE.md §9）
 #   3. sha256sum 两个二进制，把真实值填进 sha256sums（源码归档可留 SKIP）
-#   4. makepkg -sf 构建包，把 capsasr-$pkgver-$pkgrel-x86_64.pkg.tar.zst 也上传到该 Release
+#   4. cd packaging && makepkg -sf（先 pacman -S patchelf），把
+#      capsasr-*.zst 与 capsasr-cuda-*.zst 都上传到该 Release
 #   5. （可选，AUR 恢复注册后）makepkg --printsrcinfo > .SRCINFO，与 PKGBUILD 提交 AUR
 #
-# 本地验证（未发布时，绕过网络）:
-#   tar --exclude='./models' --exclude='./engines' --exclude='./packaging' -czf /tmp/src.tar.gz -C . .
-#   cd packaging && _code=/tmp/src.tar.gz \
-#       _engine=$PWD/../engines/capsasr-engine-vulkan \
-#       _engine_cuda=$PWD/../engines/capsasr-engine-cuda makepkg -f
+# 本地验证（未发布时，绕过网络；需 PATH 里有 patchelf；makepkg 的 source 不收绝对路径，
+#   产物须以 source 基名出现在 PKGBUILD 目录，环境变量覆盖为裸文件名）:
+#   tar --exclude='./models' --exclude='./engines' --exclude='./packaging' -czf packaging/src.tar.gz -C . .
+#   cd packaging && ln -sf ../engines/capsasr-engine-{vulkan,cuda} . && _code=src.tar.gz makepkg -fd
+#   namcap capsasr*-*.pkg.tar.zst
+#   预期残留: FULL RELRO 警告（待引擎按上面参数重编译）、cuda/nccl 库
+#   在本机未装导致的 W、keyd 等子进程运行依赖的 W（namcap 静态分析看不见）
 
-pkgname=capsasr
-pkgver=0.4.0
-pkgrel=3
+pkgbase=capsasr
+pkgname=(capsasr capsasr-cuda)
+pkgver=0.4.1
+pkgrel=1
 pkgdesc="本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)"
 arch=(x86_64)
 _repo="https://github.com/Wry-Zen/capsasr"
 url="$_repo"
 license=(MIT Apache-2.0)
-install=capsasr.install
-depends=(python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader)
-optdepends=(
-  'vulkan-tools: 设备探测回退'
-  'cuda: CUDA 后端运行库'
-  'bash-completion: bash 自动加载补全'
-)
 options=(!debug)
+makedepends=(patchelf)
 
 : "${_code:=${_repo}/archive/refs/tags/v${pkgver}.tar.gz}"
 : "${_engine:=${_repo}/releases/download/v${pkgver}/capsasr-engine-vulkan}"
 : "${_engine_cuda:=${_repo}/releases/download/v${pkgver}/capsasr-engine-cuda}"
 source=("$_code" "$_engine" "$_engine_cuda")
-sha256sums=(SKIP 47cb4b4ac4014f7f0e67b8a0f5755f3b5b9069923f89b27833c8d880efda0dc9 81003f5e6d001f2839149e1375f7f7727728301625339de81e3f46d34fc46b64)
+sha256sums=(SKIP ece4e23794fa37641bbd52057aff491feb18a5eb5f2a532377130bbec4065c60 81003f5e6d001f2839149e1375f7f7727728301625339de81e3f46d34fc46b64)
 
-package() {
+_prepare() {
     cd "$srcdir"
-    # GitHub tag 归档解压后是 $pkgname-$pkgver/ 顶层目录；本地验证 tarball 是扁平结构
-    if [ -d "$pkgname-$pkgver" ]; then
-        cd "$pkgname-$pkgver"
+    # GitHub tag 归档解压后是 $pkgbase-$pkgver/ 顶层目录；本地验证 tarball 是扁平结构
+    if [ -d "$pkgbase-$pkgver" ]; then
+        cd "$pkgbase-$pkgver"
     fi
+}
 
+package_capsasr() {
+    # libstdc++/libgcc/libgomp: 引擎 NEEDED（gcc-libs 现为伞形包，勿用）；bash: capsasr-daemon/setup-keyd.sh
+    depends=(bash glibc libstdc++ libgcc libgomp python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader)
+    optdepends=(
+      'vulkan-tools: 设备探测回退'
+      'bash-completion: bash 自动加载补全'
+    )
+    install=capsasr.install
+
+    _prepare
     _app="$pkgdir/usr/lib/capsasr"
     install -dm755 "$_app/capsasr" "$_app/engines" "$_app/tools" "$pkgdir/usr/bin"
 
     install -Dm644 capsasr/*.py -t "$_app/capsasr/"
     install -m755 "$srcdir/capsasr-engine-vulkan" "$_app/engines/capsasr-engine-vulkan"
-    install -m755 "$srcdir/capsasr-engine-cuda" "$_app/engines/capsasr-engine-cuda"
     install -Dm755 bin/capsasr bin/capsasr-daemon -t "$pkgdir/usr/bin/"
     install -Dm755 tools/setup-keyd.sh -t "$_app/tools/"
     install -Dm644 tools/funasr-cli.patch -t "$_app/tools/"
@@ -66,4 +82,20 @@ package() {
 体检:   capsasr doctor
 热键:   sudo bash /usr/lib/capsasr/tools/setup-keyd.sh
 EOF
+
+    # namcap: 非通用许可证标识（MIT）要求随包提供文本
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/capsasr/MIT"
+}
+
+package_capsasr-cuda() {
+    pkgdesc="CapsASR CUDA(sm_120) 引擎后端 (Blackwell; auto 模式下优先于 Vulkan)"
+    depends=(capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda nccl)
+
+    _prepare
+    _app="$pkgdir/usr/lib/capsasr"
+    install -dm755 "$_app/engines"
+    install -m755 "$srcdir/capsasr-engine-cuda" "$_app/engines/capsasr-engine-cuda"
+    # 剥离指向包外路径的 RUNPATH；运行期 daemon 注入 LD_LIBRARY_PATH 解析 cudart/cublas/nccl
+    patchelf --remove-rpath "$_app/engines/capsasr-engine-cuda"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/capsasr-cuda/MIT"
 }
