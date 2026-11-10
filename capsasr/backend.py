@@ -115,9 +115,10 @@ def list_vulkan_devices() -> list[tuple[str, str]]:
             devs = []
             for line in out.splitlines():
                 name, _, desc = line.strip().partition(": ")
-                # ggml 设备名形如 "Vulkan0"，大小写不敏感匹配，排除 CPU 行
+                # ggml 设备名是 "Vulkan0" 这类内部序号名，无辨识度；
+                # 展示与选卡匹配都用描述（真实设备名），序号沿用 ggml 枚举序
                 if name.lower().startswith("vulkan"):
-                    devs.append((name, desc))
+                    devs.append((desc or name, desc))
             if devs:
                 return devs
 
