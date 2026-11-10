@@ -35,7 +35,7 @@ options=(!debug)
 : "${_engine:=${_repo}/releases/download/v${pkgver}/capsasr-engine-vulkan}"
 : "${_engine_cuda:=${_repo}/releases/download/v${pkgver}/capsasr-engine-cuda}"
 source=("$_code" "$_engine" "$_engine_cuda")
-sha256sums=(SKIP SKIP SKIP)   # TODO 发布时填两个引擎二进制真实 sha256
+sha256sums=(SKIP 47cb4b4ac4014f7f0e67b8a0f5755f3b5b9069923f89b27833c8d880efda0dc9 81003f5e6d001f2839149e1375f7f7727728301625339de81e3f46d34fc46b64)
 
 package() {
     cd "$srcdir"

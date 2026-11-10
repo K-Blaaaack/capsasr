@@ -21,7 +21,7 @@ pkgbase = capsasr
 	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.4.0/capsasr-engine-vulkan
 	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.4.0/capsasr-engine-cuda
 	sha256sums = SKIP
-	sha256sums = SKIP
-	sha256sums = SKIP
+	sha256sums = 47cb4b4ac4014f7f0e67b8a0f5755f3b5b9069923f89b27833c8d880efda0dc9
+	sha256sums = 81003f5e6d001f2839149e1375f7f7727728301625339de81e3f46d34fc46b64
 
 pkgname = capsasr
