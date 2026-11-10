@@ -1,14 +1,15 @@
-# CapsASR 打包脚本（AUR/本地 makepkg 通用）
+# CapsASR 打包脚本（Arch；Release 分发优先，AUR 可选）
 #
 # 布局: /usr/bin/{capsasr,capsasr-daemon}（控制命令, 进 PATH）
 #       /usr/lib/capsasr/{capsasr,engines,tools}（核心运行体, 不进 PATH, 防与系统 llama.cpp 冲突）
 # 包不含模型与用户配置——装包后 `capsasr init` 完成（数据落 ~/.capsasr）。
 #
 # 发布前（顺序）:
-#   1. 把 _repo 改成你的真实 GitHub 仓库，代码推上去并打 tag v$pkgver
+#   1. 代码推上去并打 tag v$pkgver（_repo 已指向真实仓库）
 #   2. 建 Release v$pkgver，上传两个引擎二进制 capsasr-engine-{vulkan,cuda}
 #   3. sha256sum 两个二进制，把真实值填进 sha256sums（源码归档可留 SKIP）
-#   4. makepkg --printsrcinfo > .SRCINFO，PKGBUILD+.SRCINFO 一起提交 AUR
+#   4. makepkg -sf 构建包，把 capsasr-$pkgver-$pkgrel-x86_64.pkg.tar.zst 也上传到该 Release
+#   5. （可选，AUR 恢复注册后）makepkg --printsrcinfo > .SRCINFO，与 PKGBUILD 提交 AUR
 #
 # 本地验证（未发布时，绕过网络）:
 #   tar --exclude='./models' --exclude='./engines' --exclude='./packaging' -czf /tmp/src.tar.gz -C . .

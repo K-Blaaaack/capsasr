@@ -21,19 +21,24 @@ CapsLock ──keyd(/etc/keyd, overloadt 325ms)──> voice层 ──keyd liste
 
 实测（5s 音频）：常驻显存 ~2.7GB（9070），松手到出字 0.4-0.7s。可与本地 LLM 异卡共存。
 
-## 安装（Arch / AUR 路径）
+## 安装（Arch）
+
+两种方式二选一，之后初始化步骤相同：
 
 ```bash
-# 1. 装包（控制命令进 PATH，定制引擎在 /usr/lib/capsasr 不进 PATH，依赖由包条目声明）
-makepkg -si                      # 本地打包；AUR 上架后直接 yay -S capsasr
+# A. 预构建包（GitHub Release 下载 capsasr-0.4.0-1-x86_64.pkg.tar.zst）
+sudo pacman -U capsasr-0.4.0-1-x86_64.pkg.tar.zst
 
-# 2. 初始化（模型下载/本地导入、后端与选卡、热词开关、自启方式）
+# B. 从源码构建（自动拉 Release 里的引擎二进制；需 base-devel）
+git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -si
+
+# 初始化（模型下载、后端与选卡、热词开关、自启方式）
 capsasr init
 
-# 3. keyd 热键（唯一需要 sudo 的环节，capsasr init 会提示路径）
-sudo bash /usr/lib/capsasr/tools/setup-keyd.sh 325
+# keyd 热键（唯一需要 sudo 的环节，使用 hotkey.hold_ms 配置的阈值）
+sudo capsasr setup-keyd
 
-# 4. 启动（init 选了自启则下次登录生效；现在立即用）
+# 启动（init 选了自启则下次登录生效；现在立即用）
 capsasr-daemon &
 ```
 
@@ -102,12 +107,13 @@ cmake --build build -j 32 --target llama-funasr-cli
 
 ## 打包分发（维护者）
 
-`packaging/PKGBUILD` 为 AUR/本地通用骨架：
+分发走 **GitHub Release**（AUR 新用户注册暂关；`PKGBUILD`/`.SRCINFO` 保留，注册恢复后可直接提交）：
 
+- Release 资产三件：`capsasr-engine-vulkan`、`capsasr-engine-cuda`、预构建包 `capsasr-0.4.0-1-x86_64.pkg.tar.zst`
 - `depends`：python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader
-- `optdepends`：vulkan-tools（设备探测回退）、nvidia-utils（CUDA 后端）
-- `source`：源码 tarball + 引擎二进制（GitHub Release 托管），发布时改 `_github` 并 `makepkg -g` 生成 sha256
-- 本地验证构建：见 PKGBUILD 头注释（`_code`/`_engine` 环境变量指向本地产物）
+- `optdepends`：vulkan-tools（设备探测回退）、cuda（CUDA 后端运行库）
+- 构建包：`cd packaging && makepkg -sf`（source 指向 tag 归档 + Release 引擎）
+- 本地验证：见 PKGBUILD 头注释（`_code`/`_engine` 环境变量指向本地产物）
 
 ## 回滚 / 卸载
 
