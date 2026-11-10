@@ -1,0 +1,319 @@
+--- a/runtime/llama.cpp/funasr-cli/funasr-cli.cpp	2026-10-12 17:07:47.000000000 +0800
++++ b/runtime/llama.cpp/funasr-cli/funasr-cli.cpp	2026-11-08 22:46:02.729587248 +0800
+@@ -25,6 +25,8 @@
+ 
+ #include <cmath>
+ #include <condition_variable>
++#include <cerrno>
++#include <csignal>
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstring>
+@@ -34,6 +36,8 @@
+ #include <string>
+ #include <thread>
+ #include <vector>
++#include <fcntl.h>
++#include <unistd.h>
+ 
+ // any audio (wav/mp3/flac, any rate/channels) -> 16 kHz mono f32, via miniaudio
+ #define FUNASR_AUDIO_IMPLEMENTATION
+@@ -92,7 +96,17 @@
+ struct enc_model { cfg c; ggml_context*ctx_w=nullptr; std::map<std::string,ggml_tensor*> t;
+     ggml_tensor* g(const std::string&n){auto it=t.find(n);if(it==t.end()){fprintf(stderr,"missing %s\n",n.c_str());exit(1);}return it->second;} };
+ static const float LN_EPS=1e-5f;
+-static bool load_enc(const char*p, enc_model&m){
++static int g_enc_threads=16;
++// 编码器 GPU 后端（省电模式下降频 CPU 跑 221M 编码器是延迟大头）。
++// 走 ggml backend registry，CUDA/Vulkan 等 GPU 后端通用。
++static bool g_enc_gpu=false;
++static ggml_backend_dev_t g_enc_dev=nullptr;
++static ggml_backend_t g_enc_backend=nullptr;
++static ggml_backend_buffer_t g_enc_wbuf=nullptr;   // 常驻权重设备缓冲
++static ggml_backend_dev_t funasr_gpu_dev(){
++    return ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
++}
++static bool load_enc(const char*p, enc_model&m, bool use_gpu){
+     gguf_init_params gp={false,&m.ctx_w}; gguf_context*g=gguf_init_from_file(p,gp); if(!g)return false;
+     auto rd=[&](const char*k,int d){int i=gguf_find_key(g,k);return i<0?d:(int)gguf_get_val_u32(g,i);};
+     m.c.d_model=rd("funasr.enc.output_size",512); m.c.n_head=rd("funasr.enc.attention_heads",4);
+@@ -100,7 +114,41 @@
+     m.c.kernel=rd("funasr.enc.kernel_size",11); m.c.adp_llm=rd("funasr.adp.llm_dim",1024);
+     m.c.adp_layers=rd("funasr.adp.n_layer",2); m.c.adp_head=rd("funasr.adp.attention_heads",8);
+     int n=gguf_get_n_tensors(g); for(int i=0;i<n;i++){const char*nm=gguf_get_tensor_name(g,i);m.t[nm]=ggml_get_tensor(m.ctx_w,nm);}
+-    gguf_free(g); return true;
++    gguf_free(g);
++    if(use_gpu){
++        ggml_backend_dev_t dev=funasr_gpu_dev();
++        ggml_backend_buffer_type_t buft=dev?ggml_backend_dev_buffer_type(dev):nullptr;
++        if(buft){
++            // 元数据上下文 → 张量分配进 GPU 缓冲 → 从 CPU 数据逐个上传 → 换表
++            ggml_init_params cp={(size_t)64*1024*1024,nullptr,true};
++            ggml_context*cn=ggml_init(cp);
++            std::map<std::string,ggml_tensor*> nt;
++            for(auto&kv:m.t){
++                ggml_tensor*o=kv.second;
++                nt[kv.first]=ggml_new_tensor(cn,o->type,4,o->ne);
++            }
++            g_enc_wbuf=ggml_backend_alloc_ctx_tensors_from_buft(cn,buft);
++            bool ok=g_enc_wbuf!=nullptr;
++            if(ok) for(auto&kv:nt){
++                ggml_tensor*t=kv.second;
++                ggml_backend_tensor_set(t,m.t[kv.first]->data,0,ggml_nbytes(t));
++            }
++            if(ok){
++                m.t=nt; ggml_free(m.ctx_w); m.ctx_w=cn;
++                g_enc_backend=ggml_backend_dev_init(dev,nullptr);
++                g_enc_gpu=g_enc_backend!=nullptr;
++                if(g_enc_gpu){
++                    g_enc_dev=dev;
++                    fprintf(stderr,"[enc] encoder on GPU (%s)\n",ggml_backend_dev_name(dev));
++                    return true;
++                }
++            }
++            if(g_enc_wbuf){ggml_backend_buffer_free(g_enc_wbuf); g_enc_wbuf=nullptr;}
++            ggml_free(cn);
++            fprintf(stderr,"[enc] GPU 上传失败，回退 CPU\n");
++        }
++    }
++    return true;
+ }
+ static ggml_tensor* lin(ggml_context*c,ggml_tensor*w,ggml_tensor*b,ggml_tensor*x){auto y=ggml_mul_mat(c,w,x);return b?ggml_add(c,y,b):y;}
+ static ggml_tensor* lnorm(ggml_context*c,ggml_tensor*x,ggml_tensor*g,ggml_tensor*b){return ggml_add(c,ggml_mul(c,ggml_norm(c,x,LN_EPS),g),b);}
+@@ -148,7 +196,9 @@
+ // fbank [T x F] -> adaptor out [T x adp_llm] row-major
+ static std::vector<float> run_encoder(enc_model&m,std::vector<float> fbank,int T,int F,int&Dout){
+     float sc=sqrtf((float)m.c.d_model); for(auto&v:fbank)v*=sc; add_posenc(fbank,T,F);
+-    ggml_backend_t be=ggml_backend_cpu_init();
++    ggml_backend_t be; ggml_backend_buffer_type_t buft;
++    if(g_enc_gpu){ be=g_enc_backend; buft=ggml_backend_dev_buffer_type(g_enc_dev); }
++    else { be=ggml_backend_cpu_init(); buft=ggml_backend_cpu_buffer_type(); }
+     ggml_init_params cp={(size_t)1024*1024*1024,nullptr,true}; ggml_context*c=ggml_init(cp);
+     ggml_tensor*inp=ggml_new_tensor_2d(c,GGML_TYPE_F32,F,T); ggml_set_input(inp);
+     ggml_tensor*x=sanm_layer(c,m,"audio_encoder.encoders0.0.",inp,T,false);
+@@ -161,11 +211,14 @@
+     for(int i=0;i<m.c.adp_layers;i++) x=adp_layer(c,m,"audio_adaptor.blocks."+std::to_string(i)+".",x,T);
+     ggml_set_output(x);
+     ggml_cgraph*gf=ggml_new_graph_custom(c,32768,false); ggml_build_forward_expand(gf,x);
+-    ggml_gallocr_t ga=ggml_gallocr_new(ggml_backend_cpu_buffer_type()); ggml_gallocr_alloc_graph(ga,gf);
++    ggml_gallocr_t ga=ggml_gallocr_new(buft); ggml_gallocr_alloc_graph(ga,gf);
+     ggml_backend_tensor_set(inp,fbank.data(),0,ggml_nbytes(inp));
+-    ggml_backend_cpu_set_n_threads(be,8); ggml_backend_graph_compute(be,gf);
++    if(!g_enc_gpu) ggml_backend_cpu_set_n_threads(be,g_enc_threads);
++    ggml_backend_graph_compute(be,gf);
+     Dout=(int)x->ne[0]; std::vector<float> out((size_t)Dout*T); ggml_backend_tensor_get(x,out.data(),0,ggml_nbytes(x));
+-    ggml_gallocr_free(ga); ggml_free(c); ggml_backend_free(be); return out;
++    ggml_gallocr_free(ga); ggml_free(c);
++    if(!g_enc_gpu) ggml_backend_free(be);   // GPU 后端常驻复用
++    return out;
+ }
+ 
+ // ======================= LLM (llama.cpp) =======================
+@@ -188,24 +241,20 @@
+     std::vector<llama_token> pre, suf;
+ };
+ static void free_decoder(asr_decoder&d){
++    if(g_enc_wbuf){ggml_backend_buffer_free(g_enc_wbuf); g_enc_wbuf=nullptr;}
++    g_enc_gpu=false; g_enc_dev=nullptr; g_enc_backend=nullptr;
+     if(d.smpl) llama_sampler_free(d.smpl);
+     if(d.ctx) llama_free(d.ctx);
+     if(d.model) llama_model_free(d.model);
+     if(d.em.ctx_w) ggml_free(d.em.ctx_w);
+     d = asr_decoder{};
+ }
+-static bool load_decoder(const char*enc_path, const char*llm_path, float rep,
+-                         const std::string&lang, asr_decoder&d){
+-    if(!load_enc(enc_path,d.em)) return false;
++static bool load_decoder(const char*enc_path, const char*llm_path, float rep, int ngl, bool enc_gpu,
++                         const std::string&lang, const std::string&hotwords, asr_decoder&d){
++    if(!load_enc(enc_path,d.em,enc_gpu)) return false;
+     ggml_backend_load_all();
+     llama_model_params mp=llama_model_default_params();
+-#if defined(__APPLE__)
+-    // FunASR Nano's decoder is the realtime bottleneck on Apple Silicon. Offload
+-    // every supported layer to Metal so streaming does not fall behind the input.
+-    mp.n_gpu_layers=99;
+-#else
+-    mp.n_gpu_layers=0;
+-#endif
++    mp.n_gpu_layers=ngl;   // --ngl 99: offload all LLM layers (CUDA/Metal)
+     d.model=llama_model_load_from_file(llm_path,mp); if(!d.model) return false;
+     d.vocab=llama_model_get_vocab(d.model);
+     llama_context_params cp=llama_context_default_params();
+@@ -215,8 +264,11 @@
+     auto sp=llama_sampler_chain_default_params(); d.smpl=llama_sampler_chain_init(sp);
+     if(rep!=1.0f) llama_sampler_chain_add(d.smpl,llama_sampler_init_penalties(256,rep,0.0f,0.0f));
+     llama_sampler_chain_add(d.smpl,llama_sampler_init_greedy());
+-    // prompt mirrors FunASRNano.get_prompt(): 语音转写：" / 语音转写成<lang>："
+-    std::string prefix="<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n语音转写";
++    // prompt mirrors FunASRNano.get_prompt()/_build_prompt_text():
++    //   [hotword preamble] 语音转写[成<lang>]：
++    std::string prefix="<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n";
++    if(!hotwords.empty()) prefix+="请结合上下文信息，更加准确地完成语音转写任务。如果没有相关信息，我们会留空。\n\n\n**上下文信息：**\n\n\n热词列表：["+hotwords+"]\n";
++    prefix+="语音转写";
+     if(!lang.empty()) prefix+="成"+lang;
+     prefix+="：";
+     const char*suffix="<|im_end|>\n<|im_start|>assistant\n";
+@@ -330,6 +382,8 @@
+     else printf("%s %s\n",tag,t.c_str());
+     fflush(stdout);
+ }
++static volatile sig_atomic_t g_flush_req=0;
++static void funasr_flush_handler(int){ g_flush_req=1; }
+ static int run_stream(asr_decoder&d, const std::string&vad_path, int vad_maxseg, int npred){
+     const size_t SR=16000;
+     const size_t ANALYSIS=960;            // 60ms VAD analysis quantum
+@@ -338,8 +392,11 @@
+     const size_t MIN_PARTIAL=CHUNK/2, MIN_LOCKED=1600;         // python: chunk//2 / 100ms
+     funasr_vad_stream*vs=funasr_vad_stream_open(vad_path.c_str(),vad_maxseg);
+     if(!vs)return 1;
++    struct sigaction sa_flush; memset(&sa_flush,0,sizeof sa_flush);
++    sa_flush.sa_handler=funasr_flush_handler; sigemptyset(&sa_flush.sa_mask);
++    sa_flush.sa_flags=0; sigaction(SIGUSR1,&sa_flush,nullptr);
+ 
+-    enum class job_kind { partial, locked, clear, stop };
++    enum class job_kind { partial, locked, clear, flush_done, stop };
+     struct decode_job {
+         job_kind kind;
+         std::vector<float> pcm;
+@@ -358,6 +415,7 @@
+                 job=std::move(jobs.front()); jobs.pop_front();
+             }
+             if(job.kind==job_kind::stop)break;
++            if(job.kind==job_kind::flush_done){emit_line("FLUSHED","");continue;}
+             if(job.kind==job_kind::clear){
+                 if(!last_partial.empty()){emit_line("PARTIAL","");last_partial.clear();}
+                 continue;
+@@ -421,20 +479,51 @@
+     std::vector<float> wav;               // full session audio (64KB/s, fine)
+     size_t analyzed=0, last_decode=0;
+     bool partial_active=false;
+-    for(;;){
+-        unsigned char blk[16384]; size_t got=fread(blk,1,sizeof blk,stdin);
+-        bool eof=(got<sizeof blk);
+-        // s16le -> f32 (carry an odd byte across reads)
+-        static unsigned char carry=0; static bool have_carry=false;
++
++    // push-to-talk: writer keeps stdin open and raises SIGUSR1 at end of an
++    // utterance -> commit the in-progress segment immediately (is_final decode),
++    // reset the VAD session, emit FLUSHED (ordered after any LOCKED lines).
++    unsigned char carry=0; bool have_carry=false;
++    auto append_bytes=[&](const unsigned char*blk,size_t got){
+         size_t i0=0;
+         if(have_carry && got>=1){ short v=(short)((blk[0]<<8)|carry); wav.push_back(v/32768.0f); have_carry=false; i0=1; }
+         size_t n=(got-i0)/2; size_t base=wav.size(); wav.resize(base+n);
+         for(size_t i=0;i<n;i++){ unsigned char b0=blk[i0+2*i], b1=blk[i0+2*i+1];
+             wav[base+i]=((short)((b1<<8)|b0))/32768.0f; }
+         if(i0+2*n<got){ carry=blk[i0+2*n]; have_carry=true; }
++    };
++    auto commit_tail=[&]{                   // force-decode trailing in-progress segment
++        if(vs->in_speech_start_ms>=0){
++            size_t s0=(size_t)((int64_t)vs->in_speech_start_ms*SR/1000);
++            if(wav.size()>s0&&wav.size()-s0>=MIN_LOCKED){
++                enqueue_locked(std::vector<float>(wav.begin()+s0,wav.end()),
++                               vs->in_speech_start_ms,(int)(wav.size()*1000/SR));
++            }
++        }
++    };
++
++    int in_fd=fileno(stdin);
++    for(;;){
++        unsigned char blk[16384];
++        bool eof=false, flush=false;
++        fd_set rf; FD_ZERO(&rf); FD_SET(in_fd,&rf);
++        int src=select(in_fd+1,&rf,nullptr,nullptr,nullptr);
++        if(src>0){
++            ssize_t r=read(in_fd,blk,sizeof blk);
++            if(r>0)append_bytes(blk,(size_t)r);
++            else if(r==0||(r<0&&errno!=EINTR))eof=true;
++        } else if(src<0&&errno!=EINTR){ eof=true; }
++        flush=g_flush_req!=0; g_flush_req=0;
++        if(flush && !eof){
++            // writer signals only after finishing its write; drain in-flight bytes
++            int fd=fileno(stdin), ofl=fcntl(fd,F_GETFL,0);
++            fcntl(fd,F_SETFL,ofl|O_NONBLOCK);
++            for(;;){ ssize_t r=read(fd,blk,sizeof blk); if(r<=0)break; append_bytes(blk,(size_t)r); }
++            fcntl(fd,F_SETFL,ofl); clearerr(stdin);
++        }
+         // quantized analysis checkpoints: VAD emission + locked/partial decode decisions
+         // depend only on buffer contents at 60ms-quantized positions, not on pipe read size.
+-        while(analyzed+ANALYSIS<=wav.size() || (eof && analyzed<wav.size())){
++        while(analyzed+ANALYSIS<=wav.size() || ((eof||flush) && analyzed<wav.size())){
+             size_t prev=analyzed;
+             analyzed=std::min(analyzed+ANALYSIS, wav.size());
+             std::vector<std::pair<int,int>> new_segs;
+@@ -462,16 +551,24 @@
+             last_decode=analyzed;
+             partial_active=true;
+         }
++        if(flush && !eof){
++            commit_tail();
++            {
++                std::lock_guard<std::mutex> lock(job_mutex);
++                jobs.push_back({job_kind::flush_done,{},0,0});
++            }
++            job_ready.notify_one();
++            // fresh VAD session for the next utterance
++            funasr_vad_stream_close(vs);
++            vs=funasr_vad_stream_open(vad_path.c_str(),vad_maxseg);
++            if(!vs){ fprintf(stderr,"vad reopen failed\n"); finish_decoder(true); return 1; }
++            wav.clear(); analyzed=last_decode=0; partial_active=false; have_carry=false;
++            continue;
++        }
+         if(eof)break;
+     }
+     // STOP: force-decode any trailing in-progress segment (python decode(is_final=True))
+-    if(vs->in_speech_start_ms>=0){
+-        size_t s0=(size_t)((int64_t)vs->in_speech_start_ms*SR/1000);
+-        if(wav.size()>s0&&wav.size()-s0>=MIN_LOCKED){
+-            enqueue_locked(std::vector<float>(wav.begin()+s0,wav.end()),
+-                           vs->in_speech_start_ms,(int)(wav.size()*1000/SR));
+-        }
+-    }
++    commit_tail();
+     finish_decoder(false);
+     emit_line("DONE","");
+     funasr_vad_stream_close(vs);
+@@ -479,7 +576,7 @@
+ }
+ 
+ int main(int argc,char**argv){
+-    std::string enc_path,llm_path,wav_path,vad_path,lang; int npred=512; double chunk_sec=0; float rep=1.0f;
++    std::string enc_path,llm_path,wav_path,vad_path,lang,hotwords,enc_dev="auto"; int npred=512, ngl=0; double chunk_sec=0; float rep=1.0f;
+-    int vad_maxseg=30000; bool stream=false;
++    int vad_maxseg=30000; bool stream=false, list_devices=false;
+     for(int i=1;i<argc;i++){
+         if(!strcmp(argv[i],"--enc")&&i+1<argc)enc_path=argv[++i];
+@@ -491,6 +588,11 @@
+         else if(!strcmp(argv[i],"--vad-maxseg")&&i+1<argc)vad_maxseg=atoi(argv[++i]);
+         else if(!strcmp(argv[i],"--rep")&&i+1<argc)rep=atof(argv[++i]);
+         else if(!strcmp(argv[i],"--lang")&&i+1<argc)lang=argv[++i];
++        else if(!strcmp(argv[i],"--hotwords")&&i+1<argc)hotwords=argv[++i];
++        else if(!strcmp(argv[i],"--ngl")&&i+1<argc)ngl=atoi(argv[++i]);
++        else if(!strcmp(argv[i],"--enc-threads")&&i+1<argc)g_enc_threads=atoi(argv[++i]);
++        else if(!strcmp(argv[i],"--enc-device")&&i+1<argc)enc_dev=argv[++i];
++        else if(!strcmp(argv[i],"--list-devices"))list_devices=true;
+         else if(!strcmp(argv[i],"--stream"))stream=true;
+-        else {fprintf(stderr,"usage: %s --enc enc.gguf -m llm.gguf (-a audio.wav | --stream) [-n npred] [--chunk sec] [--vad fsmn-vad.gguf [--vad-maxseg ms]] [--lang language]\n",argv[0]);return 1;}
++        else {fprintf(stderr,"usage: %s --enc enc.gguf -m llm.gguf (-a audio.wav | --stream) [-n npred] [--chunk sec] [--vad fsmn-vad.gguf [--vad-maxseg ms]] [--lang language] [--ngl n] [--enc-threads n] [--enc-device auto|cuda|cpu] [--hotwords words] [--list-devices]\n",argv[0]);return 1;}
+     }
+@@ -504,7 +606,18 @@
+     int64_t t0=ggml_time_us();
+ 
++    // --list-devices: 打印 backend registry 里的全部设备（一行 "名字: 描述"），
++    // 供守护进程选卡（GGML_VK_VISIBLE_DEVICES / CUDA_VISIBLE_DEVICES）前探测。
++    if(list_devices){ ggml_backend_load_all();
++        int n=ggml_backend_dev_count();
++        for(int i=0;i<n;i++){ ggml_backend_dev_t dev=ggml_backend_dev_get(i);
++            printf("%s: %s\n", ggml_backend_dev_name(dev), ggml_backend_dev_description(dev)); }
++        return 0;
++    }
++
+     asr_decoder d;
+-    if(!load_decoder(enc_path.c_str(),llm_path.c_str(),rep,lang,d)){free_decoder(d);return 1;}
++    bool enc_gpu = enc_dev=="cuda" || (enc_dev=="auto" && funasr_gpu_dev()!=nullptr);
++    if(!load_decoder(enc_path.c_str(),llm_path.c_str(),rep,ngl,enc_gpu,lang,hotwords,d)){free_decoder(d);return 1;}
++    if(!g_enc_gpu) fprintf(stderr,"[enc] encoder on CPU (%d threads)\n",g_enc_threads);
+ 
+     if(stream){
+         emit_line("READY","");

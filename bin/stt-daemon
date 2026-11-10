@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# stt-daemon 启动器（XDG autostart 条目指向本脚本；systemd 用户可直接 ExecStart=stt daemon）
+# 布局自发现: 安装态 {prefix}/bin/stt-daemon → {prefix}/lib/funasr-nano；
+#             仓库态  {repo}/bin/stt-daemon → {repo}
+set -u
+
+SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+if [ -d "$SELF_DIR/../lib/funasr-nano/voiced" ]; then
+    APP_ROOT="$SELF_DIR/../lib/funasr-nano"
+else
+    APP_ROOT="$SELF_DIR/.."
+fi
+APP_ROOT="$(cd "$APP_ROOT" && pwd)"
+
+# 会话环境自愈：桌面自启天然具备这些变量；裸 shell/定时任务拉起时自动补齐
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${WAYLAND_SOCKET:-}" ]; then
+    for s in "$XDG_RUNTIME_DIR"/wayland-*; do
+        [ -S "$s" ] || continue
+        export WAYLAND_DISPLAY="$(basename "$s")"
+        break
+    done
+fi
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
+LOG_DIR="${STT_HOME:-$HOME/.stt}/logs"
+mkdir -p "$LOG_DIR"
+cd "$APP_ROOT" || exit 1
+exec >> "$LOG_DIR/daemon.log" 2>&1
+
+echo "=== $(date) stt-daemon 启动 (root=$APP_ROOT) ==="
+
+# 崩溃后 3s 自动拉起（对应 systemd 的 Restart=on-failure）
+while true; do
+    python3 -m voiced.daemon
+    rc=$?
+    echo "stt-daemon 退出(rc=$rc)，3s 后重启"
+    sleep 3
+done

@@ -1,0 +1,20 @@
+# 模型与引擎二进制走 Release/HF，不进 git
+models/
+engines/
+packaging/*.tar.gz
+
+# 打包产物
+packaging/*.pkg.tar.zst
+packaging/src/
+packaging/pkg/
+
+# Python
+__pycache__/
+*.pyc
+
+# 运行时数据（正常情况下在 ~/.stt，防御性忽略）
+logs/
+
+# 本地文档与示例，不入库
+/ARCHITECTURE.md
+/hotwords.txt
