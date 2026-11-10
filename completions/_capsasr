@@ -1,0 +1,85 @@
+#compdef capsasr
+# zsh completion for capsasr
+# 安装位置: /usr/share/zsh/site-functions/_capsasr
+
+_capsasr_keys=(
+    backend.mode backend.device backend.ngl backend.enc_threads
+    models.enc models.llm models.vad
+    engine.language engine.hotwords
+    hotkey.layer hotkey.hold_ms
+    notify.enabled
+    capture.sample_rate capture.preroll_ms capture.trim_db capture.head_pad_ms capture.tail_pad_ms
+    capture.min_seconds capture.max_seconds
+    paste.restore_clipboard paste.restore_delay_ms
+    server.socket
+)
+
+_capsasr() {
+    local -a cmds
+    cmds=(
+        'init:初始化 ~/.capsasr（模型下载、后端选择、自启）'
+        'config:查看/修改配置'
+        'doctor:环境体检'
+        'cli:经守护进程转写 wav'
+        'daemon:前台运行守护进程'
+        'setup-keyd:配置 keyd 热键（sudo）'
+    )
+
+    _arguments -C '1:命令:->cmd' '*::参数:->args'
+
+    case $state in
+        cmd)
+            _describe -t commands 'capsasr' cmds
+            ;;
+        args)
+            case $words[1] in
+                init)
+                    _arguments '--force[重新配置]' '--yes[全默认非交互]'
+                    ;;
+                doctor)
+                    _arguments '--verify[完整 sha256 校验]'
+                    ;;
+                cli)
+                    _arguments '1:音频文件:_files -g "*.wav"'
+                    ;;
+                daemon)
+                    _arguments '--config[配置文件]:文件:_files'
+                    ;;
+                setup-keyd)
+                    _arguments '--hold-ms[按住阈值(ms)]:毫秒:' '--remove[回滚 keyd 配置]'
+                    ;;
+                config)
+                    local -a actions
+                    actions=(get set edit path list)
+                    _arguments -C '1:动作:->act' '*::参数:->rest'
+                    case $state in
+                        act)
+                            _describe -t actions 'config' actions
+                            ;;
+                        rest)
+                            case $words[2] in
+                                get)
+                                    _describe -t keys '配置键' _capsasr_keys
+                                    ;;
+                                set)
+                                    if (( CURRENT == 4 )); then
+                                        _describe -t keys '配置键' _capsasr_keys
+                                    else
+                                        case $words[3] in
+                                            backend.mode)   _values '后端模式' auto cuda vulkan cpu ;;
+                                            notify.enabled|paste.restore_clipboard)
+                                                            _values '开关' true false ;;
+                                            engine.language) _values '语言' 中文 英文 日文 ;;
+                                        esac
+                                    fi
+                                    ;;
+                            esac
+                            ;;
+                    esac
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_capsasr "$@"

@@ -1,7 +1,7 @@
 pkgbase = capsasr
 	pkgdesc = 本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)
 	pkgver = 0.4.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Wry-Zen/capsasr
 	arch = x86_64
 	license = MIT
@@ -16,6 +16,7 @@ pkgbase = capsasr
 	depends = vulkan-icd-loader
 	optdepends = vulkan-tools: 设备探测回退
 	optdepends = cuda: CUDA 后端运行库
+	optdepends = bash-completion: bash 自动加载补全
 	options = !debug
 	source = https://github.com/Wry-Zen/capsasr/archive/refs/tags/v0.4.0.tar.gz
 	source = https://github.com/Wry-Zen/capsasr/releases/download/v0.4.0/capsasr-engine-vulkan

@@ -42,6 +42,8 @@ sudo capsasr setup-keyd
 capsasr-daemon &
 ```
 
+命令补全（bash/zsh/fish）随包安装；仓库直跑时可 `source completions/capsasr.bash`（zsh/fish 对应文件同理）。
+
 包内**不含模型**：`capsasr init` 从 Hugging Face / hf-mirror / ModelScope 三源回退下载三个 gguf 并做 sha256 校验，约 1.3GB；中断后重跑可续传（已就绪文件自动跳过）。
 
 ## 控制命令
