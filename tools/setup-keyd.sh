@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # keyd 配置：CapsLock = overloadt(voice, capslock, <阈值ms>)
 #   合并写入：只改 [main] 里的 capslock 绑定（这是本工具唯一负责的键），
-#   其余用户配置原样保留；首次修改前备份为 <conf>.capsasr.bak。
-#   --remove 优先恢复备份；无备份则只摘除 capslock 绑定。绝不关闭 keyd 服务。
+#   其余用户配置原样保留；首次修改用户原文件前备份为 <conf>.capsasr.bak。
+#   自身生成的配置带管理标记（capsasr-managed），不备份；
+#   --remove 分三种情形：恢复用户原配置 / 删除自身生成配置 / 仅摘除绑定。绝不关闭 keyd 服务。
 # 用法: sudo bash tools/setup-keyd.sh [阈值毫秒, 默认 325]
 # 回滚: sudo bash tools/setup-keyd.sh --remove
 # 测试: KEYD_CONF=/tmp/k.conf bash tools/setup-keyd.sh 500   （沙箱：不碰系统与 systemd）
@@ -26,12 +27,23 @@ if [[ "${1:-}" == "--remove" ]]; then
     elif [[ -f "$CONF" ]]; then
         python3 - "$CONF" <<'PY'
 import pathlib, sys
+MARK = "# capsasr-managed: 由 CapsASR setup-keyd 生成/维护，--remove 时整体移除"
 p = pathlib.Path(sys.argv[1])
-lines = [l for l in p.read_text().splitlines()
+text = p.read_text()
+lines = [l for l in text.splitlines()
          if not (l.strip().startswith("capslock") and "overloadt(voice" in l)]
-p.write_text("\n".join(lines) + "\n")
+managed = MARK in text
+# 剩余内容若只是我们生成的空骨架（[ids]/*/[main]/[voice]），整文件删除
+skeleton = {"[ids]", "*", "[main]", "[voice]"}
+leftover = [l.strip() for l in lines
+            if l.strip() and not l.strip().startswith("#")]
+if managed and set(leftover) <= skeleton:
+    p.unlink()
+    print("已删除 CapsASR 生成的 keyd 配置")
+else:
+    p.write_text("\n".join(lines) + "\n")
+    print("已摘除 capsasr 的 capslock 绑定（其余配置保留）")
 PY
-        echo "已摘除 capsasr 的 capslock 绑定（其余配置保留）"
     else
         echo "没有可回滚的配置"
     fi
@@ -53,15 +65,19 @@ import pathlib, re, shutil, sys
 conf, backup, hold = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path(conf)
 binding = f"capslock = overloadt(voice, capslock, {hold})"
+MARK = "# capsasr-managed: 由 CapsASR setup-keyd 生成/维护，--remove 时整体移除"
 
 if not p.exists():
-    # 全新安装：keyd 需要 [ids] 设备匹配段，否则不会匹配任何键盘
-    p.write_text(f"[ids]\n*\n\n[main]\n{binding}\n\n[voice]\n")
+    # 全新安装：keyd 需要 [ids] 设备匹配段，否则不会匹配任何键盘；
+    # 打上管理标记，--remove 时据此整体移除而非误备份/误恢复
+    p.write_text(f"{MARK}\n[ids]\n*\n\n[main]\n{binding}\n\n[voice]\n")
     sys.exit(0)
 
 lines = p.read_text().splitlines()
-# 首次修改前留底（只留最早一份：多轮改动后仍能回到动手前）
-if not pathlib.Path(backup).exists():
+managed = any(l.strip() == MARK for l in lines)
+# 只给真正的用户原文件留底（只留最早一份）；自身生成/维护的配置不备份，
+# 否则二次修改会把自产的旧阈值当成“用户原配置”，卸载后语音绑定复活
+if not managed and not pathlib.Path(backup).exists():
     shutil.copy2(conf, backup)
 
 main_idx = next((i for i, l in enumerate(lines) if l.strip() == "[main]"), None)

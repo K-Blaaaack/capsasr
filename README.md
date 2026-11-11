@@ -28,13 +28,13 @@ Vulkan；未安装则探测自动跳过，不影响使用。
 
 ```bash
 # A. 预构建包（GitHub Release 下载）
-sudo pacman -U capsasr-0.4.4-1-x86_64.pkg.tar.zst
+sudo pacman -U capsasr-0.4.5-1-x86_64.pkg.tar.zst
 #   要用 CUDA 后端再追加：
-#   sudo pacman -U capsasr-cuda-0.4.4-1-x86_64.pkg.tar.zst
+#   sudo pacman -U capsasr-cuda-0.4.5-1-x86_64.pkg.tar.zst
 
 # B. 从源码构建（自动拉 Release 引擎二进制；需 base-devel 与 patchelf）
 git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -sf
-sudo pacman -U capsasr-0.4.4-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cuda-*.zst
+sudo pacman -U capsasr-0.4.5-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cuda-*.zst
 ```
 
 命令补全（bash/zsh/fish）随包安装；仓库直跑可 `source completions/capsasr.bash`（zsh/fish 同理）。
