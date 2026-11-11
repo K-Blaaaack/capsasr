@@ -52,11 +52,16 @@ python3 - "$CONF" "$BACKUP" "$HOLD_MS" <<'PY'
 import pathlib, re, shutil, sys
 conf, backup, hold = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path(conf)
-lines = p.read_text().splitlines() if p.exists() else []
 binding = f"capslock = overloadt(voice, capslock, {hold})"
 
+if not p.exists():
+    # 全新安装：keyd 需要 [ids] 设备匹配段，否则不会匹配任何键盘
+    p.write_text(f"[ids]\n*\n\n[main]\n{binding}\n\n[voice]\n")
+    sys.exit(0)
+
+lines = p.read_text().splitlines()
 # 首次修改前留底（只留最早一份：多轮改动后仍能回到动手前）
-if p.exists() and not pathlib.Path(backup).exists():
+if not pathlib.Path(backup).exists():
     shutil.copy2(conf, backup)
 
 main_idx = next((i for i, l in enumerate(lines) if l.strip() == "[main]"), None)

@@ -82,8 +82,9 @@ def set_config_value(dotted: str, value: str, path: Path | None = None) -> None:
     lines = p.read_text(encoding="utf8").splitlines() if p.exists() else []
 
     sec_start = None
+    sec_pat = re.compile(rf"^\s*\[\s*{re.escape(sec)}\s*\]\s*(?:#.*)?$")
     for i, l in enumerate(lines):
-        if l.strip() == f"[{sec}]":
+        if sec_pat.match(l):  # 容忍缩进与节头尾注释，如 "[backend]  # 说明"
             sec_start = i
             break
     if sec_start is None:

@@ -191,7 +191,15 @@ def _gpu_candidate(backend: str, cfg) -> Candidate | None:
             )
             return None
         else:
-            note = f"唯一设备: {devs[0][0]}" if devs else "未发现设备，不过滤"
+            note = f"唯一设备: {devs[0][0]}"
+    elif cfg.backend_device != "auto":
+        # 枚举失败时无法校验点名设备：同样拒绝，不静默退回不过滤
+        print(
+            f"[backend] {backend}: 设备枚举失败，无法确认指定的 "
+            f"'{cfg.backend_device}'，跳过该后端",
+            flush=True,
+        )
+        return None
 
     return Candidate(
         name=backend,
