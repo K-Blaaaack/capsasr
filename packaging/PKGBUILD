@@ -13,8 +13,10 @@
 # 发布前（顺序）:
 #   1. 代码推上去并打 tag v$pkgver
 #   2. 建 Release v$pkgver，上传两个引擎二进制 capsasr-engine-{vulkan,cuda}
-#      （重编译时加 -DCMAKE_SKIP_RPATH=ON -DCMAKE_EXE_LINKER_FLAGS="-Wl,-z,relro,-z,now"：
-#        FULL RELRO 只能在链接期解决，RUNPATH 剥离后 daemon 端已适配，见 ARCHITECTURE.md §9）
+#      （重编译加 -DGGML_NATIVE=OFF（可移植，勿用构建机指令集）
+#        -DCMAKE_SKIP_RPATH=ON -DCMAKE_EXE_LINKER_FLAGS="-Wl,-z,relro,-z,now"；
+#        CUDA 再加 -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90;100;120-virtual"（编译机装 cuda 包即可,无需 NVIDIA 卡；nccl 可选）,
+#        见 ARCHITECTURE.md §9 —— FULL RELRO 只能在链接期解决）
 #   3. sha256sum 两个二进制，把真实值填进 sha256sums（源码归档可留 SKIP）
 #   4. cd packaging && makepkg -sf（先 pacman -S patchelf），把
 #      capsasr-*.zst 与 capsasr-cuda-*.zst 都上传到该 Release
@@ -25,12 +27,12 @@
 #   tar --exclude='./models' --exclude='./engines' --exclude='./packaging' -czf packaging/src.tar.gz -C . .
 #   cd packaging && ln -sf ../engines/capsasr-engine-{vulkan,cuda} . && _code=src.tar.gz makepkg -fd
 #   namcap capsasr*-*.pkg.tar.zst
-#   预期残留: FULL RELRO 警告（待引擎按上面参数重编译）、cuda/nccl 库
-#   在本机未装导致的 W、keyd 等子进程运行依赖的 W（namcap 静态分析看不见）
+#   预期残留（均可解释）: 主包子进程运行依赖 W（keyd 等，namcap 静态分析看不见）、
+#   capsasr-cuda 的 cublasLt unused W（链接器 as-needed 现象）与 capsasr 跨包依赖 W
 
 pkgbase=capsasr
 pkgname=(capsasr capsasr-cuda)
-pkgver=0.4.2
+pkgver=0.4.3
 pkgrel=1
 pkgdesc="本地语音输入: 长按 CapsLock 说话, 松手识别粘贴 (引擎 Fun-ASR-Nano GGUF, 无 PyTorch)"
 arch=(x86_64)
@@ -44,7 +46,7 @@ makedepends=(patchelf)
 : "${_engine:=${_repo}/releases/download/v${pkgver}/capsasr-engine-vulkan}"
 : "${_engine_cuda:=${_repo}/releases/download/v${pkgver}/capsasr-engine-cuda}"
 source=("$_code" "$_engine" "$_engine_cuda")
-sha256sums=(SKIP ece4e23794fa37641bbd52057aff491feb18a5eb5f2a532377130bbec4065c60 81003f5e6d001f2839149e1375f7f7727728301625339de81e3f46d34fc46b64)
+sha256sums=(SKIP 67d1e1c8c66374f8b90ffb5c7c98000851899cfcd788a6134ff9a0afc78e6854 d91b58bf7ff82630866ba392b5d5c79fc45f9551cdfbcf9787463ff2e496309a)
 
 _prepare() {
     cd "$srcdir"
@@ -88,8 +90,8 @@ EOF
 }
 
 package_capsasr-cuda() {
-    pkgdesc="CapsASR CUDA(sm_120) 引擎后端 (Blackwell; auto 模式下优先于 Vulkan)"
-    depends=(capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda nccl)
+    pkgdesc="CapsASR CUDA 引擎后端（sm_75–120a 七档 + 每档 PTX；auto 模式下优先于 Vulkan）"
+    depends=(capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda)
 
     _prepare
     _app="$pkgdir/usr/lib/capsasr"

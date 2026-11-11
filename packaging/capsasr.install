@@ -1,12 +1,14 @@
 pre_remove() {
     echo "==> 建议先以普通用户执行: capsasr uninstall"
     echo "    （清理自启条目/用户服务/进程；--purge 连 ~/.capsasr 模型数据一起删除）"
+    echo "==> 恢复 CapsLock 原功能（须在卸载系统包之前执行，脚本随包删除）:"
+    echo "    sudo capsasr setup-keyd --remove"
 }
 
 post_remove() {
     echo "==> 若未提前执行 capsasr uninstall，用户级残留请手动清理（普通用户）:"
     echo "    rm -f ~/.config/autostart/capsasr.desktop ~/.config/systemd/user/capsasr.service"
     echo "    rm -rf ~/.capsasr   # 模型与配置"
-    echo "==> 恢复 CapsLock 原功能（root，可选）:"
-    echo "    rm -f /etc/keyd/default.conf && systemctl restart keyd"
+    echo "==> keyd 残留（root，可选；只摘 capsasr 加的行，勿整文件删除）:"
+    echo "    编辑 /etc/keyd/default.conf 删掉 capslock = overloadt(voice,...) 行（或恢复同目录 .capsasr.bak）后 systemctl restart keyd"
 }

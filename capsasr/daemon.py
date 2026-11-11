@@ -84,12 +84,13 @@ class Daemon:
             notify("未识别到内容", f"{dur:.1f}s / {elapsed:.2f}s")
             return
 
-        paste_text(
+        ok = paste_text(
             text,
             restore=cfg.restore_clipboard,
             restore_delay_ms=cfg.restore_delay_ms,
         )
-        notify("✓ 已粘贴", f"{text[:80]}", timeout_ms=3000)
+        if ok:
+            notify("✓ 已粘贴", f"{text[:80]}", timeout_ms=3000)
         print(f"[daemon] {dur:.1f}s audio -> {elapsed:.2f}s: {text}", flush=True)
 
     def run(self):

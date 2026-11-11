@@ -12,6 +12,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from . import backend, downloader
@@ -95,17 +96,25 @@ def set_config_value(dotted: str, value: str, path: Path | None = None) -> None:
             if lines[i].lstrip().startswith("["):
                 sec_end = i
                 break
-        stripped = f"{key} ="
+        # 容忍缩进（如 "  mode = ..."），避免改成追加重复键导致文件不可解析
+        pat = re.compile(rf"^\s*{re.escape(key)}\s*=")
         for i in range(sec_start + 1, sec_end):
-            if lines[i].startswith(stripped) or lines[i].startswith(f"{key}="):
+            if pat.match(lines[i]):
                 lines[i] = f"{key} = {_toml_value(val)}"
                 break
         else:
             while sec_end > sec_start + 1 and not lines[sec_end - 1].strip():
                 sec_end -= 1
             lines.insert(sec_end, f"{key} = {_toml_value(val)}")
+
+    new_text = "\n".join(lines) + "\n"
+    try:
+        tomllib.loads(new_text)
+    except tomllib.TOMLDecodeError as e:
+        # 编辑结果非法（如文件里本就有重复键）：宁可中止也不写坏配置
+        raise SystemExit(f"写入中止：编辑结果不是合法 TOML（{e}），原文件未改动")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(lines) + "\n", encoding="utf8")
+    p.write_text(new_text, encoding="utf8")
 
 
 # ---------- capsasr init ----------

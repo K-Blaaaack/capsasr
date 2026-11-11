@@ -28,16 +28,18 @@ Vulkan；未安装则探测自动跳过，不影响使用。
 
 ```bash
 # A. 预构建包（GitHub Release 下载）
-sudo pacman -U capsasr-0.4.2-1-x86_64.pkg.tar.zst
+sudo pacman -U capsasr-0.4.3-1-x86_64.pkg.tar.zst
 #   要用 CUDA 后端再追加：
-#   sudo pacman -U capsasr-cuda-0.4.2-1-x86_64.pkg.tar.zst
+#   sudo pacman -U capsasr-cuda-0.4.3-1-x86_64.pkg.tar.zst
 
 # B. 从源码构建（自动拉 Release 引擎二进制；需 base-devel 与 patchelf）
 git clone https://github.com/Wry-Zen/capsasr.git && cd capsasr/packaging && makepkg -sf
-sudo pacman -U capsasr-0.4.2-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cuda-*.zst
+sudo pacman -U capsasr-0.4.3-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cuda-*.zst
 ```
 
 命令补全（bash/zsh/fish）随包安装；仓库直跑可 `source completions/capsasr.bash`（zsh/fish 同理）。
+
+**平台要求**：x86_64 Linux（Arch；CPU 需支持 AVX2，约 2013 年后）；**Wayland 会话**（粘贴链依赖 wl-copy/wl-paste）；GPU 显存 ~2.7GB（Vulkan 或 CUDA，不足则自动降级 CPU，零显存但延迟约翻倍）；CUDA 引擎需 NVIDIA 驱动 + CUDA 13 运行库（`capsasr-cuda` 会自动拉齐）。
 
 ## 初始化
 
@@ -90,7 +92,7 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `backend.mode` | auto | auto=cuda→vulkan→cpu 降级；显式 cuda/vulkan/cpu 只加 CPU 兜底 |
-| `backend.device` | auto | 设备名子串（如 "RADV"、"9070"）或序号；auto=多卡取 0 号 |
+| `backend.device` | auto | 设备名子串（如 "RADV"、"RTX"；纯数字按序号）；auto=多卡取 0 号；点名不存在则拒绝上 GPU，宁降 CPU 不占别的卡 |
 | `backend.ngl` | 99 | LLM 层 offload 数（0=纯 CPU） |
 | `backend.enc_threads` | 16 | 编码器 CPU 回退线程数 |
 | `models.enc / llm / vad` | 文件名 | 相对模型目录；绝对路径原样 |
@@ -108,7 +110,7 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
 ```toml
 [backend]
 mode = "auto"      # auto: cuda→vulkan→cpu 探测降级；也可显式 cuda/vulkan/cpu
-device = "auto"    # 设备名子串（如 "RADV"、"9070"）或序号；auto=多卡时取 0 号
+device = "auto"    # 设备名子串（如 "RADV"、"RTX"；纯数字一律按序号解释）或序号；auto=多卡时取 0 号
 ```
 
 - 探测判据：引擎二进制存在 + 驱动库可 dlopen + ldd 无缺库；spawn 后 60s 内未 READY 自动换下一候选并气泡通知
@@ -118,8 +120,8 @@ device = "auto"    # 设备名子串（如 "RADV"、"9070"）或序号；auto=�
 
 ## 引擎与补丁
 
-主包携带 `capsasr-engine-vulkan`（0.4.1 起加固：FULL RELRO + PIE、无 RUNPATH、原生 `--list-devices`）；
-`capsasr-cuda` 携带 `capsasr-engine-cuda`（Blackwell/sm_120）。CUDA 引擎包内已剥离 RUNPATH，
+主包携带 `capsasr-engine-vulkan`（0.4.3 起可移植构建：`GGML_NATIVE=OFF`，构建机指令集不再泄漏进二进制；FULL RELRO + PIE、无 RUNPATH、原生 `--list-devices`）；
+`capsasr-cuda` 携带 `capsasr-engine-cuda`（0.4.3 起七档全覆盖：sm_75/80/86/89/90/100/120a SASS + 每档 PTX，比列表更新的卡可 JIT；不再链接 nccl）。CUDA 引擎包内已剥离 RUNPATH，
 运行库（cudart/cublas/nccl）由 daemon 在 spawn 时注入 `LD_LIBRARY_PATH` 解析——
 `/opt/cuda`、`CUDA_HOME` 等任意安装位置均可。
 
@@ -135,23 +137,30 @@ device = "auto"    # 设备名子串（如 "RADV"、"9070"）或序号；auto=�
 
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=ON -DLLAMA_CURL=OFF \
+      -DGGML_NATIVE=OFF \
       -DCMAKE_SKIP_RPATH=ON -DCMAKE_EXE_LINKER_FLAGS="-Wl,-z,relro,-z,now" \
       -DFETCHCONTENT_SOURCE_DIR_LLAMA=<本地llama.cpp路径>
 cmake --build build -j 32 --target llama-funasr-cli
 ```
 
-依赖 `vulkan-headers spirv-headers shaderc`；CUDA 版把 `-DGGML_VULKAN=ON` 换成 `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`，需 `/opt/cuda`。链接参数：`-z now` 补全 FULL RELRO；`CMAKE_SKIP_RPATH` 去掉 `/opt/cuda` RUNPATH，运行库改由 daemon 注入 `LD_LIBRARY_PATH`（`capsasr/backend.py`）。**先停 daemon 再 cp 二进制**（Text file busy），验证后删构建树。
+依赖 `vulkan-headers spirv-headers shaderc`。CUDA 版把 `-DGGML_VULKAN=ON` 换成 `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90;100;120-virtual"`，需 `/opt/cuda`（编译机装 `cuda` 包即可，**不需要 NVIDIA 显卡在场**；列表含分号，shell 里必须带引号；nccl 可选——不装则不链，仅影响多卡并行性能，本工具选卡固定单卡）。
+
+可移植性要点（在别人的设备上踩过 SIGILL 后的结论）：
+- `GGML_NATIVE=OFF`：默认 `native` 会把构建机指令集（如 AVX-512）烤进代码，在旧 CPU 上直接非法指令（i5-13500H 实测）。关掉后编译到 **AVX2 档**（与 llama.cpp 官方发布二进制一致，覆盖约 2013 年后的 x86-64）；热点在 GPU，CPU 档位只影响 VAD（毫秒级）与 CPU 兜底模式（略慢）。不启用 `GGML_CPU_ALL_VARIANTS`：它要求动态后端，产物变成多个 .so，破坏单文件布局
+- CUDA 架构列表覆盖 Turing(75)/Ampere(80,86)/Ada(89)/Hopper(90)/Blackwell(100,120)；末位 `120-virtual` 嵌 PTX，更新的卡可 JIT
+- `-z now` 补全 FULL RELRO；`CMAKE_SKIP_RPATH` 去掉 `/opt/cuda` RUNPATH，运行库改由 daemon 注入 `LD_LIBRARY_PATH`（`capsasr/backend.py`）
+- **先停 daemon 再 cp 二进制**（Text file busy），验证后删构建树
 
 ## 打包分发（维护者）
 
 分发走 **GitHub Release**（AUR 新用户注册暂关；`PKGBUILD`/`.SRCINFO` 保留，注册恢复后可直接提交）。
 
-- **拆双包**：`capsasr`（Vulkan 引擎）+ `capsasr-cuda`（CUDA 引擎，depends: capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda nccl）
+- **拆双包**：`capsasr`（Vulkan 引擎）+ `capsasr-cuda`（CUDA 引擎，depends: capsasr glibc libstdc++ libgcc libgomp nvidia-utils cuda）
 - **主包 depends**：bash glibc libstdc++ libgcc libgomp python keyd wl-clipboard ydotool libnotify pipewire pipewire-pulse vulkan-icd-loader；optdepends: vulkan-tools（设备探测回退）、bash-completion
 - **Release 资产四件**：`capsasr-engine-vulkan`、`capsasr-engine-cuda`、预构建包 `capsasr-<ver>-x86_64.pkg.tar.zst` 与 `capsasr-cuda-<ver>-x86_64.pkg.tar.zst`
 - **发布顺序**：打 tag → 建 Release 传引擎二进制 → `sha256sum` 填进 PKGBUILD → `makepkg -sf`（需 `pacman -S patchelf`，用于剥离 CUDA 引擎 RUNPATH）→ 预构建包传同一 Release
 - **本地验证**：见 PKGBUILD 头注释（makepkg 的 source 不收绝对路径，产物以基名放入 PKGBUILD 目录）
-- **namcap 基线**：0 错误；主包仅剩 keyd 等子进程运行依赖误报（静态分析盲区）；capsasr-cuda 剩 CUDA 旧二进制的 FULL RELRO（待重编）与 cuda/nccl 库告警（仅在未装它们的构建机上报）
+- **namcap 基线**：0 错误；主包仅剩 keyd 等子进程运行依赖误报（静态分析盲区）；capsasr-cuda 仅剩 cublasLt unused（链接器 as-needed 现象）与跨包依赖不可见两条
 
 ## 回滚 / 卸载
 

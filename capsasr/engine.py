@@ -184,7 +184,13 @@ class Engine:
                 try:
                     line = self._lines.get(timeout=max(0.1, deadline - time.time()))
                 except queue.Empty:
-                    raise RuntimeError("转写超时（30s 未收到 FLUSHED）")
+                    # 超时后旧引擎可能仍在推理：立即重启换新队列，丢弃迟到的
+                    # LOCKED/FLUSHED，避免污染下一次 transcribe（请求-响应对应关系）
+                    try:
+                        self._spawn(self._cand)
+                    except Exception as e:
+                        print(f"[engine] 超时后重启失败: {e}", flush=True)
+                    raise RuntimeError("转写超时（30s 未收到 FLUSHED），引擎已重启")
                 if line is None:
                     raise RuntimeError("引擎子进程意外退出")
                 if line == "FLUSHED":

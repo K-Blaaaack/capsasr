@@ -48,8 +48,11 @@ def _restore_clipboard(data: bytes, mime: str):
     p.communicate(data)
 
 
-def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500):
-    """写入剪贴板并模拟 Ctrl+V，之后按原 MIME 恢复剪贴板内容。"""
+def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500) -> bool:
+    """写入剪贴板并模拟 Ctrl+V，之后按原 MIME 恢复剪贴板内容。
+
+    返回自动粘贴是否成功；失败时**不恢复**原剪贴板——识别文本留在里面供手动 Ctrl+V。
+    """
     old = _save_clipboard() if restore else None
 
     p = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
@@ -59,10 +62,17 @@ def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500):
         from .notify import notify
 
         notify("剪贴板写入失败", "文本未进入剪贴板")
-        return
+        return False
 
     time.sleep(0.05)
-    _run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
+    r = _run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
+    if r.returncode != 0:
+        # 粘贴失败：识别文本已在剪贴板，跳过恢复，留给用户手动粘贴
+        print(f"[paste] ydotool 失败(rc={r.returncode})，识别文本留在剪贴板", flush=True)
+        from .notify import notify
+
+        notify("自动粘贴失败", "识别文本已留在剪贴板，可手动 Ctrl+V")
+        return False
 
     if old:
         def _later():
@@ -70,3 +80,4 @@ def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500):
             _restore_clipboard(*old)
 
         threading.Thread(target=_later, daemon=True).start()
+    return True

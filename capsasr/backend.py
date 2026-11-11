@@ -146,11 +146,12 @@ def list_cuda_devices() -> list[tuple[str, str]]:
 
 
 def _match_index(devs: list[tuple[str, str]], spec: str) -> int | None:
-    """device 配置 → 序号：纯数字透传；否则按名字子串（不区分大小写）匹配。"""
+    """device 配置 → 序号：纯数字按序号（越界=None）；否则按名字子串（不区分大小写）。"""
     if spec == "auto":
         return 0 if len(devs) > 1 else None  # 多卡不设过滤会被 llama.cpp 摊到所有卡
     if spec.isdigit():
-        return int(spec)
+        idx = int(spec)
+        return idx if 0 <= idx < len(devs) else None
     low = spec.lower()
     for i, (name, _) in enumerate(devs):
         if low in name.lower():
@@ -179,10 +180,18 @@ def _gpu_candidate(backend: str, cfg) -> Candidate | None:
             var = "CUDA_VISIBLE_DEVICES" if backend == "cuda" else "GGML_VK_VISIBLE_DEVICES"
             env[var] = str(idx)
             note = f"设备{idx}: {name}" + (f" ({desc})" if desc != name else "")
-        elif len(devs) <= 1:
-            note = f"唯一设备: {devs[0][0]}" if devs else "未发现设备，不过滤"
+        elif cfg.backend_device != "auto":
+            # 显式点名的设备不存在（名字不匹配/序号越界）：宁可不跑 GPU，
+            # 也不悄悄占用别的卡——点名某张卡通常有理由
+            hint = "纯数字按序号解释，按名字匹配请用含字母的子串（如 RADV/RTX）" if cfg.backend_device.isdigit() else ""
+            print(
+                f"[backend] {backend}: 未匹配到设备 '{cfg.backend_device}'"
+                f"（可见: {', '.join(n for n, _ in devs)}），跳过该后端。{hint}",
+                flush=True,
+            )
+            return None
         else:
-            note = f"未匹配到设备 '{cfg.backend_device}'，不过滤（可见: {', '.join(n for n, _ in devs)}）"
+            note = f"唯一设备: {devs[0][0]}" if devs else "未发现设备，不过滤"
 
     return Candidate(
         name=backend,
