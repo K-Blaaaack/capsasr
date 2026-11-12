@@ -9,7 +9,7 @@ from array import array
 from pathlib import Path
 
 from . import backend
-from .notify import notify, set_enabled
+from .notify import configure, notify
 
 
 class Engine:
@@ -27,7 +27,7 @@ class Engine:
 
     def __init__(self, cfg):
         self.cfg = cfg
-        set_enabled(cfg.notify_enabled)
+        configure(cfg.notify_enabled, cfg.notify_channel)
         self._lock = threading.Lock()
         self.hotwords = cfg.load_hotwords()
 
@@ -63,6 +63,7 @@ class Engine:
                     notify(
                         f"后端 {cand.name} 启动失败",
                         f"降级到 {candidates[i + 1].name}",
+                        level="warn",
                     )
                 continue
             self._cand = cand

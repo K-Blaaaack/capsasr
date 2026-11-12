@@ -61,7 +61,7 @@ def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500) -> 
         print("[paste] wl-copy 失败（剪贴板不可用？WAYLAND_DISPLAY 缺失）", flush=True)
         from .notify import notify
 
-        notify("剪贴板写入失败", "文本未进入剪贴板")
+        notify("剪贴板写入失败", "文本未进入剪贴板", level="error")
         return False
 
     time.sleep(0.05)
@@ -71,7 +71,7 @@ def paste_text(text: str, restore: bool = True, restore_delay_ms: int = 500) -> 
         print(f"[paste] ydotool 失败(rc={r.returncode})，识别文本留在剪贴板", flush=True)
         from .notify import notify
 
-        notify("自动粘贴失败", "识别文本已留在剪贴板，可手动 Ctrl+V")
+        notify("自动粘贴失败", "识别文本已留在剪贴板，可手动 Ctrl+V", level="error")
         return False
 
     if old:

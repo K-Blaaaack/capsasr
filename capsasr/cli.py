@@ -17,6 +17,7 @@ from pathlib import Path
 
 from . import backend, downloader
 from .config import APP_ROOT, CAPSASR_HOME, DEFAULTS, RUNTIME_DIR, Config, config_path, models_dir
+from .notify import CHANNELS, dms_available
 
 # dotted key → (节, 键, 类型)；类型用于 set 时的值解析/校验
 KEYS: dict[str, tuple[str, str, type]] = {}
@@ -129,6 +130,35 @@ def _ask(prompt: str, default: str = "") -> str:
     return ans or default
 
 
+_NOTIFY_CHOICES = {
+    "1": "dms", "dms": "dms", "toast": "dms",
+    "2": "desktop", "desktop": "desktop", "notify-send": "desktop",
+    "3": "both", "both": "both",
+}
+
+
+def _ask_notify_channel() -> str | None:
+    """向导里的通知通道选择；None = 不启用。"""
+    dms_ok = dms_available()
+    fallback = "dms" if dms_ok else "desktop"
+    print("\n通知通道:")
+    print("  1) DMS 悬浮 toast" + ("（检测到 dms）" if dms_ok
+                                 else "（未检测到 dms，运行时自动退回通用通知）"))
+    print("  2) 通用通知 notify-send（进通知中心留档）")
+    print("  3) 两者都要（悬浮 + 留档）")
+    print("  4) 不启用")
+    for _ in range(3):
+        pick = _ask("选择 1/2/3/4:", "1" if dms_ok else "2").strip().lower()
+        if pick in ("4", "n", "no", "none", "off"):
+            return None
+        if pick in ("y", "yes"):
+            return fallback
+        if pick in _NOTIFY_CHOICES:
+            return _NOTIFY_CHOICES[pick]
+        print("  无效选择：输入 1-4，或 dms / desktop / both / none")
+    return fallback
+
+
 def _download_models() -> bool:
     """下载三个模型；已就绪（校验通过）的自动跳过，支持断点续跑。"""
     try:
@@ -167,9 +197,10 @@ def cmd_init(args) -> int:
     hold = 325 if args.yes else _ask_int("按住激活时长 ms:", 325, 50, 2000)
     if hold != 325:
         overrides["hotkey"] = {"hold_ms": hold}
-    use_notify = (not args.yes) and _ask("启用右下角通知? y/n:", "n").lower() in ("y", "yes")
-    if use_notify:
-        overrides["notify"] = {"enabled": True}
+    if not args.yes:
+        channel = _ask_notify_channel()
+        if channel:
+            overrides["notify"] = {"enabled": True, "channel": channel}
 
     hw = CAPSASR_HOME / "hotwords.txt"
     enable_hw = (not args.yes) and _ask("启用热词表? y/n:", "y").lower() in ("y", "yes")
@@ -307,11 +338,15 @@ def cmd_config(args) -> int:
             write_config({})
         return subprocess.call([editor, str(p)])
     if args.action == "set":
+        if args.key == "notify.channel":
+            args.value = (args.value or "").strip().lower()
+            if args.value not in CHANNELS:
+                raise SystemExit(f"notify.channel 只接受 {' / '.join(CHANNELS)}")
         set_config_value(args.key, args.value)
         print(f"{config_path()}: {args.key} = {args.value}")
         if args.key == "hotkey.hold_ms":
             print("执行 sudo capsasr setup-keyd 使按住阈值生效")
-        elif args.key == "notify.enabled":
+        elif args.key in ("notify.enabled", "notify.channel"):
             print('重启守护进程生效（pkill -f "[c]apsasr.daemon"，壳会自动拉起）')
         return 0
     # get / list
@@ -349,6 +384,7 @@ def _cfg_attr(dotted: str) -> str:
         "models.vad": "model_vad",
         "hotkey.layer": "trigger_layer",
         "notify.enabled": "notify_enabled",
+        "notify.channel": "notify_channel",
     }
     if dotted in special:
         return special[dotted]
@@ -463,6 +499,13 @@ def cmd_doctor(args) -> int:
     check("keyd 组成员", in_group, "读取 /run/keyd.socket 需要（新会话生效）")
     check("WAYLAND 会话", bool(_daemon_env("WAYLAND_DISPLAY") or _daemon_env("WAYLAND_SOCKET")))
     check("DBUS 会话", bool(_daemon_env("DBUS_SESSION_BUS_ADDRESS")))
+    if cfg.notify_enabled:
+        detail = cfg.notify_channel
+        if cfg.notify_channel in ("dms", "both"):
+            detail += "（dms ✓）" if dms_available() else "（dms ✗，运行时退回 notify-send）"
+        print(f" 通知通道: {detail}")
+    else:
+        print(" 通知通道: 未启用")
     check("ydotoold", _ydotoold_running(), "Ctrl+V 模拟需要 ydotoold 运行")
     xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     check("XDG 自启条目", (xdg / "autostart/capsasr.desktop").exists())
@@ -541,7 +584,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="capsasr", description="CapsASR 语音输入控制命令")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("init", help="初始化 ~/.capsasr：模型下载、后端/选卡、激活时长、通知、热词、自启")
+    sp = sub.add_parser("init", help="初始化 ~/.capsasr：模型下载、后端/选卡、激活时长、通知通道、热词、自启")
     sp.add_argument("--force", action="store_true", help="重新配置（覆盖 config.toml）")
     sp.add_argument("--yes", action="store_true", help="全默认非交互（auto 后端、325ms、无通知、无热词、autostart）")
     sp.set_defaults(fn=cmd_init)

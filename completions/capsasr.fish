@@ -31,7 +31,7 @@ set -l _capsasr_config_keys \
     models.enc models.llm models.vad \
     engine.language engine.hotwords \
     hotkey.layer hotkey.hold_ms \
-    notify.enabled \
+    notify.enabled notify.channel \
     capture.sample_rate capture.preroll_ms capture.trim_db capture.head_pad_ms capture.tail_pad_ms \
     capture.min_seconds capture.max_seconds \
     paste.restore_clipboard paste.restore_delay_ms \
@@ -42,6 +42,7 @@ complete -c capsasr -n '__fish_seen_subcommand_from config; and contains -- (com
 # config set 的值候选（按上一个 token 判断键名）
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] backend.mode' -a 'auto cuda vulkan cpu'
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] notify.enabled paste.restore_clipboard' -a 'true false'
+complete -c capsasr -n 'contains -- (commandline -opc)[-1] notify.channel' -a 'desktop dms both'
 complete -c capsasr -n 'contains -- (commandline -opc)[-1] engine.language' -a '中文 英文 日文'
 
 complete -c capsasr -n '__fish_seen_subcommand_from uninstall' -l purge -d '连 ~/.capsasr（含模型）一起删除'

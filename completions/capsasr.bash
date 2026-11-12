@@ -4,7 +4,7 @@ _capsasr_subcommands="init config doctor cli daemon setup-keyd uninstall"
 _capsasr_config_actions="get set edit path list"
 _capsasr_config_keys="backend.mode backend.device backend.ngl backend.enc_threads \
 models.enc models.llm models.vad engine.language engine.hotwords \
-hotkey.layer hotkey.hold_ms notify.enabled \
+hotkey.layer hotkey.hold_ms notify.enabled notify.channel \
 capture.sample_rate capture.preroll_ms capture.trim_db capture.head_pad_ms capture.tail_pad_ms \
 capture.min_seconds capture.max_seconds paste.restore_clipboard paste.restore_delay_ms server.socket"
 
@@ -51,6 +51,8 @@ _capsasr() {
                             backend.mode)   COMPREPLY=($(compgen -W "auto cuda vulkan cpu" -- "$cur")) ;;
                             notify.enabled|paste.restore_clipboard)
                                             COMPREPLY=($(compgen -W "true false" -- "$cur")) ;;
+                            notify.channel)
+                                            COMPREPLY=($(compgen -W "desktop dms both" -- "$cur")) ;;
                             engine.language) COMPREPLY=($(compgen -W "中文 英文 日文" -- "$cur")) ;;
                             *)              COMPREPLY=() ;;
                         esac

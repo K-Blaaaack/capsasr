@@ -7,7 +7,7 @@ _capsasr_keys=(
     models.enc models.llm models.vad
     engine.language engine.hotwords
     hotkey.layer hotkey.hold_ms
-    notify.enabled
+    notify.enabled notify.channel
     capture.sample_rate capture.preroll_ms capture.trim_db capture.head_pad_ms capture.tail_pad_ms
     capture.min_seconds capture.max_seconds
     paste.restore_clipboard paste.restore_delay_ms
@@ -73,6 +73,7 @@ _capsasr() {
                                             backend.mode)   _values '后端模式' auto cuda vulkan cpu ;;
                                             notify.enabled|paste.restore_clipboard)
                                                             _values '开关' true false ;;
+                                            notify.channel) _values '通知通道' desktop dms both ;;
                                             engine.language) _values '语言' 中文 英文 日文 ;;
                                         esac
                                     fi

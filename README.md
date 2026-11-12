@@ -44,7 +44,7 @@ sudo pacman -U capsasr-0.4.5-1-x86_64.pkg.tar.zst   # 需要时再装 capsasr-cu
 ## 初始化
 
 ```bash
-capsasr init            # 向导：模型下载、后端/选卡、激活时长、通知、热词、自启
+capsasr init            # 向导：模型下载、后端/选卡、激活时长、通知通道、热词、自启
 sudo capsasr setup-keyd # 唯一需要 root 的环节：把 CapsLock 长按阈值写入 keyd
 capsasr-daemon &        # init 选了自启则下次登录生效；这是立即启动
 ```
@@ -52,12 +52,13 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
 - 包内**不含模型**：三个 gguf（encoder 469MB + LLM 805MB + VAD 1.7MB，约 1.3GB）由 init 从
   Hugging Face / hf-mirror / ModelScope 依次回退下载，sha256 校验，中断重跑续传（已就绪自动跳过）
 - init 选 autostart 会立即后台启动守护进程
+- 通知通道在向导里四选一：DMS 悬浮 toast / 通用通知 / 两者都要 / 不启用（见下文「通知通道」）
 
 ## 控制命令
 
 | 命令 | 说明 |
 |---|---|
-| `capsasr init` | 向导：模型下载、后端/选卡、热词、自启（`--force` 重配，`--yes` 全默认） |
+| `capsasr init` | 向导：模型下载、后端/选卡、通知通道、热词、自启（`--force` 重配，`--yes` 全默认） |
 | `capsasr doctor` | 环境体检：python/模型/后端探测/设备/daemon/keyd/ydotoold（`--verify` 做完整 sha256） |
 | `capsasr config` | 列出全部配置（`*`=配置文件显式设置） |
 | `capsasr config get backend.mode` | 查单键 |
@@ -69,7 +70,7 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
 | `capsasr daemon` | 前台运行守护进程（systemd/调试用） |
 | `capsasr-daemon` | 带环境自愈 + 崩溃 3s 重拉的包装壳（桌面自启条目指向它） |
 
-改 `hotkey.hold_ms` 后需 `sudo capsasr setup-keyd` 生效；改 `notify.enabled` 后重启 daemon。
+改 `hotkey.hold_ms` 后需 `sudo capsasr setup-keyd` 生效；改 `notify.enabled` / `notify.channel` 后重启 daemon。
 
 ## 目录布局
 
@@ -100,10 +101,31 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
 | `engine.hotwords` | hotwords.txt | 空串=禁用热词 |
 | `hotkey.layer` | voice | keyd 层名，须与 /etc/keyd 配置一致 |
 | `hotkey.hold_ms` | 325 | 长按判定阈值（毫秒） |
-| `notify.enabled` | false | 右下角状态气泡（含后端降级通知） |
+| `notify.enabled` | false | 状态提示总开关（含后端降级通知） |
+| `notify.channel` | desktop | desktop=通用通知留档；dms=DMS 悬浮 toast；both=悬浮+留档 |
 | `capture.*` | 16000 / 300 / -40 / 100 / 200 / 0.35 / 60 | 采样率Hz / 预卷ms / 裁剪阈值dB / 首垫ms / 尾垫ms / 最短s / 最长s |
 | `paste.restore_clipboard / restore_delay_ms` | true / 500 | 剪贴板恢复 |
 | `server.socket` | capsasr.sock | 位于 `$XDG_RUNTIME_DIR` 下 |
+
+## 通知通道
+
+`[notify] channel` 决定状态提示走哪条路（`enabled = false` 时两条都不发）：
+
+| 值 | 行为 |
+|---|---|
+| `desktop`（默认） | `notify-send` → 通知中心，有历史可回看 |
+| `dms` | DMS 顶部居中悬浮 toast（`dms ipc call toast …`，namespace `dms:toast`），不进通知中心 |
+| `both` | toast + `notify-send`（悬浮提示 + 留档） |
+
+```bash
+capsasr config set notify.enabled true  # 总开关，默认关；改了要重启 daemon
+capsasr config set notify.channel dms   # desktop / dms / both
+capsasr doctor                          # 会显示当前通道与 dms 是否可用
+```
+
+- **DMS toast 时长固定、不能自定义**：info 1.5s、warn 3s、error 5s，error 带明细 8s；一次只显示一条，多条排队（上限 3，同级同文本自动去重）
+- `dms` 未安装/未启动/调用失败时**自动退回 `notify-send`**，提示不会静默丢失；需要历史记录就用 `both` 或 `desktop`
+- 没有 DMS 的桌面（GNOME/KDE 等）选 `desktop` 即可；DMS 见 <https://github.com/AvengeMedia/DankMaterialShell>
 
 ## 后端与选卡
 
@@ -173,5 +195,5 @@ sudo pacman -R capsasr            # 卸载系统包（装了 capsasr-cuda 则 `p
 ## 依赖与许可
 
 - Python ≥ 3.11 标准库（tomllib；**零 pip 依赖**）
-- 系统依赖见包 `depends`（pipewire/parec、keyd、wl-clipboard、ydotool+ydotoold、libnotify、Vulkan 加载器）
+- 系统依赖见包 `depends`（pipewire/parec、keyd、wl-clipboard、ydotool+ydotoold、libnotify、Vulkan 加载器）；DMS 为可选依赖，仅 `notify.channel = dms/both` 时需要
 - 模型权重 Apache-2.0（FunAudioLLM）；本仓库代码 MIT（见 LICENSE）

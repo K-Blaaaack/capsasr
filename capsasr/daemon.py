@@ -12,7 +12,7 @@ from .capture import Capture, trim_silence
 from .config import Config
 from .engine import Engine
 from .hotkey import HotkeyListener
-from .notify import notify, set_enabled
+from .notify import configure, notify
 from .paste import paste_text
 from .server import Server
 
@@ -20,7 +20,7 @@ from .server import Server
 class Daemon:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        set_enabled(cfg.notify_enabled)
+        configure(cfg.notify_enabled, cfg.notify_channel)
         print("[daemon] loading engine...", flush=True)
         self.engine = Engine(cfg)
         self.capture = Capture(cfg)
@@ -52,7 +52,7 @@ class Daemon:
         try:
             self._jobs.put_nowait((audio, total))
         except queue.Full:
-            notify("识别忙碌，已丢弃本次录音")
+            notify("识别忙碌，已丢弃本次录音", level="warn")
 
     def _work(self):
         while True:
@@ -61,14 +61,14 @@ class Daemon:
                 self._process(audio, total)
             except Exception as e:
                 print(f"[daemon] 处理失败: {e}", flush=True)
-                notify("识别失败", str(e)[:120])
+                notify("识别失败", str(e)[:120], level="error")
 
     def _process(self, audio, total):
         cfg = self.cfg
         max_bytes = int(cfg.max_seconds * cfg.sample_rate) * 2
         if len(audio) > max_bytes:
             audio = audio[:max_bytes]
-            notify("超过时长上限，已截断", f"{cfg.max_seconds:.0f}s")
+            notify("超过时长上限，已截断", f"{cfg.max_seconds:.0f}s", level="warn")
 
         audio = trim_silence(audio, cfg)
         dur = len(audio) // 2 / cfg.sample_rate

@@ -2,6 +2,8 @@ import os
 import tomllib
 from pathlib import Path
 
+from .notify import CHANNELS, DEFAULT_CHANNEL
+
 # 应用根：capsasr/ 的父目录。仓库直跑 = 仓库根；安装后 = /usr/lib/capsasr（或 ~/.local/...）
 APP_ROOT = Path(__file__).resolve().parent.parent
 
@@ -33,7 +35,8 @@ DEFAULTS: dict = {
     },
     "engine": {"language": "中文", "hotwords": "hotwords.txt"},
     "hotkey": {"layer": "voice", "hold_ms": 325},
-    "notify": {"enabled": False},
+    # channel: desktop=notify-send（通知中心留档）| dms=DMS 悬浮 toast | both=两者
+    "notify": {"enabled": False, "channel": "desktop"},
     "capture": {
         "sample_rate": 16000,
         "preroll_ms": 300,
@@ -96,6 +99,8 @@ class Config:
         self.trigger_layer = str(merged["hotkey"].get("layer", "voice"))
         self.hold_ms = int(merged["hotkey"].get("hold_ms", 325))
         self.notify_enabled = bool(merged["notify"].get("enabled", True))
+        ch = str(merged["notify"].get("channel", DEFAULT_CHANNEL)).strip().lower()
+        self.notify_channel = ch if ch in CHANNELS else DEFAULT_CHANNEL
 
         cap = merged["capture"]
         self.sample_rate = int(cap.get("sample_rate", 16000))
