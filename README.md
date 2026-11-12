@@ -83,7 +83,7 @@ capsasr-daemon &        # init 选了自启则下次登录生效；这是立即�
   logs/          daemon.log / engine.log
 ```
 
-热词：编辑 `~/.capsasr/hotwords.txt` 后 `pkill -HUP -f "[v]oiced.daemon"` 热重载（重启常驻引擎进程）。
+热词：编辑 `~/.capsasr/hotwords.txt` 后 `pkill -HUP -f "[c]apsasr.daemon"` 热重载（重启常驻引擎进程）。
 
 ## 配置参考
 
