@@ -347,6 +347,8 @@ def _cfg_attr(dotted: str) -> str:
         "models.enc": "model_enc",
         "models.llm": "model_llm",
         "models.vad": "model_vad",
+        "engine.hotwords": "hotwords_file",
+        "server.socket": "socket_path",
         "hotkey.layer": "trigger_layer",
         "notify.enabled": "notify_enabled",
     }
